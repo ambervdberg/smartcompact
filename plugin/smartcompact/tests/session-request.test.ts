@@ -1,0 +1,424 @@
+import { describe, expect, mock, test } from 'claude-code/testing';
+import {
+  OVERRIDE_PROMPT_FILE,
+  clearDraft,
+  fakeSession,
+  finishedTurn,
+  loggedEvents,
+  loggedLines,
+  taggedTurn,
+  withoutTime,
+} from './fake-engine.ts';
+
+const START = Date.UTC(2026, 9, 4, 10, 0);
+const HOME = { USERPROFILE: 'C:/home' };
+const NO_FLOOR = { options: { minTokens: 0 } };
+const JUDGE_INSTRUCTIONS = 'Keep the current goal, the next step and open decisions.';
+const DOCS_INSTRUCTIONS = 'Keep the current goal, open decisions and what this next step needs: Write the docs.';
+const COMPACTED_LINE = 'Context was compacted automatically.';
+const PROMPT_BODY = [
+  '- If you were waiting on a choice from me, make the best decision and go on.',
+  '- If the current task or plan has more steps, do the next one.',
+  '- If all work is done, stop and say so.',
+];
+const COMPACTED_DOCS_PROMPT = [COMPACTED_LINE, 'Write the docs.', ...PROMPT_BODY].join('\n');
+const UNCOMPACTED_DOCS_PROMPT = ['Write the docs.', ...PROMPT_BODY].join('\n');
+
+describe('a tag at the end of a main answer', () => {
+  test('compacts with the tag instructions and continues with its text', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
+    expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-typed', 'continue-typed']);
+    expect(loggedLines(session)[0]).toMatchObject({ next: 'Write the docs.', tokens: 0 });
+    expect(loggedLines(session)[1]).toMatchObject({ reason: 'session asked', tokens: 0 });
+    expect(session.statuses.map(withoutTime)).toEqual(['will compact', 'compacting...', 'compacted', 'continued']);
+  });
+
+  test('an empty tag is an untagged turn and goes to the judge', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn(''));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual(['haiku']);
+    expect(loggedEvents(session)).not.toContain('compact-requested');
+  });
+
+  test('logs only the first 300 characters of the tag text', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('x'.repeat(400)));
+    await clock.settle();
+
+    expect(loggedLines(session)[0]?.['next']).toBe('x'.repeat(300));
+  });
+
+  test('is never judged, also on the first turn after a compaction', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual(['haiku']);
+    expect(session.compacts).toEqual([JUDGE_INSTRUCTIONS, DOCS_INSTRUCTIONS]);
+  });
+
+  test('does nothing in a subagent turn', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete({ ...taggedTurn('Write the docs.'), agentId: 'agent-1' });
+    await clock.settle();
+
+    expect(loggedEvents(session)).toEqual([]);
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([]);
+  });
+});
+
+describe('a tag below the floor', () => {
+  test('continues without a compaction and without the compacted line', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.claudeModels).toEqual([]);
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'continue-typed']);
+  });
+
+  test('keeps a first line of the user\'s own', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.files.set(OVERRIDE_PROMPT_FILE, 'Go on.\n{next}');
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual(['Go on.\nWrite the docs.']);
+  });
+
+  test('leaves out the compacted line of an override saved with Windows line ends', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.files.set(OVERRIDE_PROMPT_FILE, `${COMPACTED_LINE}\r\n{next}\r\n`);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual(['Write the docs.']);
+  });
+
+  test('keeps dollar signs in the tag text as typed', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Rename $& and $1 and $$ in run.sh.'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual([['Rename $& and $1 and $$ in run.sh.', ...PROMPT_BODY].join('\n')]);
+  });
+
+  test('is ignored by the loop guard right after a continue prompt sent below the floor', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'continue-typed',
+      'compact-requested',
+      'request-ignored',
+    ]);
+    expect(loggedLines(session).at(-1)).toMatchObject({ reason: 'loop guard' });
+    expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
+  });
+
+  test('passes the loop guard when another turn came between', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+    await $.turn.start({ text: 'Looks good, go on.', turnId: 'turn-3' });
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-3'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT, UNCOMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'continue-typed',
+      'judge-skipped',
+      'compact-requested',
+      'continue-typed',
+    ]);
+  });
+
+  test('above the floor right after a continue prompt sent below the floor compacts', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    session.tokens = 70000;
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT, COMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'continue-typed',
+      'compact-requested',
+      'compact-typed',
+      'continue-typed',
+    ]);
+  });
+
+  test('on the first turn of a new session saves the baseline', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.messages = [];
+    session.tokens = 80000;
+
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    session.tokens = 90000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(session.store.get('floors')).toMatchObject({ 'session-1': { baseline: 80000, waitingFor: null } });
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'continue-typed', 'judge-skipped']);
+    expect(loggedLines(session).at(-1)).toMatchObject({ reason: 'below floor', added: 10000 });
+  });
+
+  test('right after a plugin compaction still gets its continue prompt', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = 70000;
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    session.tokens = 90000;
+    await $.turn.complete(taggedTurn('Ship it.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
+    expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT, ['Ship it.', ...PROMPT_BODY].join('\n')]);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'compact-typed',
+      'continue-typed',
+      'compact-requested',
+      'continue-typed',
+    ]);
+  });
+});
+
+describe('an ignored tag', () => {
+  test('while subagents run, because a finishing subagent wakes the session', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.agents = [{ id: 'agent-1', description: 'review', type: 'general-purpose', status: 'running' }];
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'request-ignored']);
+    expect(loggedLines(session)[1]).toMatchObject({ reason: 'subagents running', agents: ['agent-1'] });
+    expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
+  });
+});
+
+describe('a held tag', () => {
+  test('still continues when the engine skips the compaction', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.compactSkip = 'a PreCompact hook said no';
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-failed', 'continue-typed']);
+  });
+
+  test('is ignored by the loop guard right after a continue sent for a skipped compaction', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.compactSkip = 'a PreCompact hook said no';
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'compact-failed',
+      'continue-typed',
+      'compact-requested',
+      'request-ignored',
+    ]);
+    expect(loggedLines(session).at(-1)).toMatchObject({ reason: 'loop guard' });
+  });
+
+  test('compacts again right after a continue sent for a real compaction', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([DOCS_INSTRUCTIONS, DOCS_INSTRUCTIONS]);
+    expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT, COMPACTED_DOCS_PROMPT]);
+  });
+
+  test('a judge yes sends nothing when the engine skips the compaction', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.compactSkip = 'a PreCompact hook said no';
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(session.submitted).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-failed']);
+  });
+
+  test('sends nothing when a new turn drops it', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.draft = 'half a thought';
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.start({ text: 'half a thought', turnId: 'turn-2' });
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-waiting', 'compact-dropped']);
+  });
+
+  test('sends nothing when a new turn starts before it is held', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await $.turn.start({ text: 'One more thing.', turnId: 'turn-2' });
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-dropped']);
+    expect(loggedLines(session)[1]).toMatchObject({ reason: 'new turn started' });
+  });
+
+  test('logs a failure after an edit emptied the prompt box as request-error', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.draft = 'half a thought';
+    session.files.set(OVERRIDE_PROMPT_FILE, '{next}');
+    session.unreadableFiles.add(OVERRIDE_PROMPT_FILE);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await clearDraft($, 'half a thought');
+    await clock.settle();
+
+    expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-waiting', 'compact-typed', 'request-error']);
+    expect(withoutTime(session.statuses.at(-1))).toBe('error');
+  });
+
+  test('logs a judge yes that fails after an edit emptied the prompt box as judge-error', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.draft = 'half a thought';
+    session.files.set(OVERRIDE_PROMPT_FILE, '{next}');
+    session.unreadableFiles.add(OVERRIDE_PROMPT_FILE);
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+    await clearDraft($, 'half a thought');
+    await clock.settle();
+
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-waiting', 'compact-typed', 'judge-error']);
+  });
+});
+
+describe('a failure in the tag path', () => {
+  test('is logged as request-error', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.files.set(OVERRIDE_PROMPT_FILE, '{next}');
+    session.unreadableFiles.add(OVERRIDE_PROMPT_FILE);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.submitted).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'request-error']);
+  });
+});

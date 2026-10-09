@@ -1,0 +1,19 @@
+
+# Local tool files
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+
+# Dependencies
+node_modules/
+
+# Local agent files
+.claude/
+CLAUDE.local.md
+.beads/
+.agents/
+.codex/
+.cursor/
+AGENTS.md

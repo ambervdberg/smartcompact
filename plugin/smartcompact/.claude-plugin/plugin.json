@@ -1,0 +1,24 @@
+{
+  "name": "smartcompact",
+  "version": "0.1.0",
+  "description": "A Claude Code mod that compacts the conversation at a good moment, asked for by the session after a nudge or chosen by a small judge model, and then tells Claude to continue.",
+  "author": { "name": "Amber van den Berg", "url": "https://github.com/ambervdberg" },
+  "homepage": "https://github.com/ambervdberg/smartcompact",
+  "repository": "https://github.com/ambervdberg/smartcompact",
+  "license": "MIT",
+  "keywords": ["compact", "context", "judge", "automation"],
+  "userConfig": {
+    "minTokens": {
+      "type": "number",
+      "title": "Token floor",
+      "description": "Tokens added since the first turn of the session, or since the first turn after a compaction, before the session is nudged to compact, the judge is asked or a session's own request compacts.",
+      "default": 60000
+    },
+    "claudeModel": {
+      "type": "string",
+      "title": "Claude judge model",
+      "description": "Model alias or id for the Claude judge. It runs on your own Claude login.",
+      "default": "haiku"
+    }
+  }
+}

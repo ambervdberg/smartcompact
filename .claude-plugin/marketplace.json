@@ -1,0 +1,12 @@
+{
+  "name": "smartcompact",
+  "description": "A Claude Code mod that compacts the conversation at a good moment and then continues the work, so long sessions keep going without a full context.",
+  "owner": { "name": "Amber van den Berg", "url": "https://github.com/ambervdberg" },
+  "plugins": [
+    {
+      "name": "smartcompact",
+      "source": "./plugin/smartcompact",
+      "description": "A Claude Code mod that compacts the conversation at a good moment, asked for by the session after a nudge or chosen by a small judge model, and then tells Claude to continue."
+    }
+  ]
+}
