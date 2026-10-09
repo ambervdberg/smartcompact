@@ -6,8 +6,7 @@ import type { ContextFloor } from './context-floor.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
-import { buildJudgeInput, judgeInputExcerpts } from './judge-input.ts';
-import type { JudgeInput } from './judge-input.ts';
+import { buildJudgeInput } from './judge-input.ts';
 import type { PendingCompaction } from './pending-compaction.ts';
 import type { Settings } from './plugin-settings.ts';
 import { runningSubagentIds } from './running-subagents.ts';
@@ -103,7 +102,7 @@ export class TurnJudging {
     const startedAt = await engine.now();
     const input = buildJudgeInput(await engine.messages(), turn.answer);
     const answer = await askClaudeJudge(engine, this.#settings, input);
-    const verdictDetails = verdictDetailsOf(tokens, answer, input, await sinceMs(engine, startedAt));
+    const verdictDetails = verdictDetailsOf(tokens, answer, await sinceMs(engine, startedAt));
 
     if (!answer.verdict.compact) {
       logEvent(engine, 'judge-no', verdictDetails);
@@ -151,18 +150,12 @@ export class TurnJudging {
   }
 }
 
-function verdictDetailsOf(
-  tokens: number,
-  answer: JudgeAnswer,
-  input: JudgeInput,
-  latencyMs: number,
-): Record<string, unknown> {
+function verdictDetailsOf(tokens: number, answer: JudgeAnswer, latencyMs: number): Record<string, unknown> {
   return {
     tokens,
     reason: answer.verdict.reason,
     model: answer.model,
     latencyMs,
-    ...judgeInputExcerpts(input),
   };
 }
 

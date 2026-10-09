@@ -15,7 +15,6 @@ import type { FinishedTurn } from './turn-judging.ts';
 
 /** The `compact-typed` reason of a compaction the session asked for. */
 const SESSION_ASKED = 'session asked';
-const LOGGED_NEXT_CHARS = 300;
 
 /**
  * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
@@ -51,7 +50,7 @@ export class RequestFollowing {
   async #follow(engine: Engine, turn: FinishedTurn, request: CompactRequest): Promise<void> {
     const tokens = (await engine.usage()).context.tokens ?? 0;
 
-    logEvent(engine, 'compact-requested', { next: request.next.slice(0, LOGGED_NEXT_CHARS), tokens });
+    logEvent(engine, 'compact-requested', { tokens });
     await this.#takeFirstTurn(engine, tokens);
 
     if (await this.#hasRunningSubagents(engine)) {

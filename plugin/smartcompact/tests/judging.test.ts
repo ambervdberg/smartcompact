@@ -137,42 +137,30 @@ describe('judge model', () => {
 });
 
 describe('judge log lines', () => {
-  const LONG_PROMPT = `START${'p'.repeat(500)}`;
-  const LONG_ANSWER = `${'a'.repeat(500)}END`;
+  const SECRET_PROMPT = 'secret prompt text';
+  const VERDICTS = [
+    { name: 'yes', compact: true, event: 'judge-yes' },
+    { name: 'no', compact: false, event: 'judge-no' },
+  ];
 
-  test('a yes carries the start of the prompt and the cut end of the answer', {
-    options: { minTokens: 0 },
-  }, async ($, on) => {
-    const clock = mock.clock(on, { now: START });
-    mock.env(on, HOME);
-    const session = fakeSession(on);
-    session.messages = [{ role: 'user', text: LONG_PROMPT, toolUses: [] }];
+  for (const { name, compact, event } of VERDICTS) {
+    test(`a ${name} logs no prompt and no answer`, { options: { minTokens: 0 } }, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.messages = [{ role: 'user', text: SECRET_PROMPT, toolUses: [] }];
+      session.claudeReply = () => claudeVerdict(compact, 'a short reason');
 
-    await $.turn.complete({ ...finishedTurn(), answer: LONG_ANSWER });
-    await clock.settle();
+      await $.turn.complete(finishedTurn());
+      await clock.settle();
 
-    const line = loggedLines(session)[0];
+      const line = loggedLines(session).find((logged) => logged['event'] === event);
 
-    expect(line).toMatchObject({ event: 'judge-yes', tokens: 0, reason: 'work is done', model: 'haiku' });
-    expect(line?.['prompt']).toBe(LONG_PROMPT.slice(0, 300));
-    expect(line?.['answer']).toBe(`…${LONG_ANSWER.slice(-400)}`);
-  });
-
-  test('a no carries a short prompt and a short answer whole', { options: { minTokens: 0 } }, async ($, on) => {
-    const clock = mock.clock(on, { now: START });
-    mock.env(on, HOME);
-    const session = fakeSession(on);
-    session.claudeReply = () => claudeVerdict(false, 'mid-fix');
-
-    await $.turn.complete(finishedTurn());
-    await clock.settle();
-
-    expect(loggedLines(session)[0]).toMatchObject({
-      event: 'judge-no',
-      prompt: 'Fix the bug.',
-      answer: 'Done. Shall I push?',
+      expect(line).toMatchObject({ event, reason: 'a short reason' });
+      expect(line).not.toHaveProperty('prompt');
+      expect(line).not.toHaveProperty('answer');
     });
-  });
+  }
 });
 
 describe('judge errors', () => {

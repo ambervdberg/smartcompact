@@ -1,10 +1,13 @@
 {
   "name": "smartcompact",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Claude Code mod that compacts the conversation at a good moment, asked for by the session after a nudge or chosen by a small judge model, and then tells Claude to continue.",
   "author": { "name": "Amber van den Berg", "url": "https://github.com/ambervdberg" },
   "homepage": "https://github.com/ambervdberg/smartcompact",
   "repository": "https://github.com/ambervdberg/smartcompact",
+  "privacyPolicyUrl": "https://github.com/ambervdberg/smartcompact/blob/main/plugin/smartcompact/README.md#what-it-reads-sends-and-writes",
+  "supportUrl": "https://github.com/ambervdberg/smartcompact/issues",
+  "documentationUrl": "https://github.com/ambervdberg/smartcompact/blob/main/plugin/smartcompact/README.md",
   "license": "MIT",
   "keywords": ["compact", "context", "judge", "automation"],
   "userConfig": {

@@ -37,7 +37,8 @@ describe('a tag at the end of a main answer', () => {
     expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
     expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT]);
     expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-typed', 'continue-typed']);
-    expect(loggedLines(session)[0]).toMatchObject({ next: 'Write the docs.', tokens: 0 });
+    expect(loggedLines(session)[0]).toMatchObject({ event: 'compact-requested', tokens: 0 });
+    expect(loggedLines(session)[0]).not.toHaveProperty('next');
     expect(loggedLines(session)[1]).toMatchObject({ reason: 'session asked', tokens: 0 });
     expect(session.statuses.map(withoutTime)).toEqual(['will compact', 'compacting...', 'compacted', 'continued']);
   });
@@ -54,7 +55,7 @@ describe('a tag at the end of a main answer', () => {
     expect(loggedEvents(session)).not.toContain('compact-requested');
   });
 
-  test('logs only the first 300 characters of the tag text', async ($, on) => {
+  test('logs no tag text', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
@@ -62,7 +63,7 @@ describe('a tag at the end of a main answer', () => {
     await $.turn.complete(taggedTurn('x'.repeat(400)));
     await clock.settle();
 
-    expect(loggedLines(session)[0]?.['next']).toBe('x'.repeat(300));
+    expect(loggedLines(session)[0]).not.toHaveProperty('next');
   });
 
   test('is never judged, also on the first turn after a compaction', NO_FLOOR, async ($, on) => {

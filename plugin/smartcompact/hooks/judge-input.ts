@@ -5,8 +5,6 @@ const MAX_PROMPT_CHARS = 2000;
 const MAX_ASSISTANT_CHARS = 4000;
 const MAX_TOOL_CALL_CHARS = 150;
 const MAX_TOOL_CALLS = 40;
-const LOG_PROMPT_CHARS = 300;
-const LOG_ANSWER_CHARS = 400;
 // The nudge row is a user text row the plugin wrote, so it is never the last prompt.
 const SYSTEM_TEXT_STARTS = [
   '<task-notification>',
@@ -32,17 +30,6 @@ export function buildJudgeInput(messages: readonly SessionMessage[], answer: str
     userPrompt: prompt.slice(0, MAX_PROMPT_CHARS),
     assistantMessage: assistantMessage.slice(-MAX_ASSISTANT_CHARS),
     toolCalls: toolCallsAfter(messages, promptIndex),
-  };
-}
-
-/** The short texts the log keeps from the judge input: the prompt start and the answer end. */
-export function judgeInputExcerpts(input: JudgeInput): { prompt: string; answer: string } {
-  const isAnswerCut = input.assistantMessage.length > LOG_ANSWER_CHARS;
-  const answerEnd = input.assistantMessage.slice(-LOG_ANSWER_CHARS);
-
-  return {
-    prompt: input.userPrompt.slice(0, LOG_PROMPT_CHARS),
-    answer: isAnswerCut ? `…${answerEnd}` : answerEnd,
   };
 }
 
