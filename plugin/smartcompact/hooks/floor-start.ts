@@ -17,5 +17,10 @@ export async function startFloor(engine: Engine, floor: ContextFloor): Promise<v
 
   if ((await engine.messages()).length === 0) {
     floor.startNewSession();
+
+    return;
   }
+
+  // A /resume to another session in the same process would else keep the previous session's floor.
+  floor.restore({ baseline: 0, waitingFor: null });
 }

@@ -295,6 +295,25 @@ describe('first turn of a session', () => {
     expect(session.statuses).toEqual(['judge after next turn']);
   });
 
+  test('a resume to another session without saved state drops the previous baseline', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.messages = [];
+    session.tokens = 80000;
+    await $.session.start(START_ARGS);
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    session.id = 'session-2';
+    session.messages = [{ role: 'user', text: 'Add the feature.', toolUses: [] }];
+    session.tokens = 100000;
+    await $.session.start(START_ARGS);
+
+    expect(session.statuses.at(-1)).toBe('judge after next turn');
+  });
+
   test('a /clear ends the session without a start, so its next turn is skipped as a first turn', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
