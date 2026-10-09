@@ -31,6 +31,8 @@ const NO_USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_token
 
 /** What the fake session holds and what the plugin did to it. Tests change the first part and read the second. */
 export type FakeSession = {
+  /** Change it to stand in for a /resume to another session in the same process. */
+  id: string;
   tokens: number;
   draft: string;
   isDialogOpen: boolean;
@@ -58,6 +60,7 @@ export type FakeSession = {
 /** Stands in for the engine beneath the plugin: each hook answers from the fake session. */
 export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeSession {
   const session: FakeSession = {
+    id: 'session-1',
     tokens: 0,
     draft: '',
     isDialogOpen: false,
@@ -166,7 +169,7 @@ function answerSessionCalls(on: On, session: FakeSession): void {
 
     return { value: undefined };
   });
-  on('session.id', () => ({ value: 'session-1' }));
+  on('session.id', () => ({ value: session.id }));
   on('session.cwd', () => ({ value: 'C:/work' }));
   on('session.usage', () => ({
     value: { startedAt: 0, context: { tokens: session.tokens, window: 200000 }, rateLimits: [] },
