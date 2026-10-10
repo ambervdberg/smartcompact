@@ -52,6 +52,20 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
+  // The count before a main step after the first is the first request's input: the context at turn start plus the
+  // prompt. The stream passes on unchanged.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined && e.index >= 1 && floor.state().waitingFor !== null) {
+      const tokens = await contextTokens(engineOf($));
+
+      if (tokens !== undefined) {
+        floor.noteTurnStartReading(tokens);
+      }
+    }
+
+    return yield* next(e);
+  });
+
   // The judge or the tag's request runs after the turn has settled, so the turn never waits on it.
   on('turn.complete', async ($, e, next) => {
     const turnsAtEnd = turns.count();

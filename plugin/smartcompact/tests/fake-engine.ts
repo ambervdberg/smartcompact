@@ -127,6 +127,21 @@ export function taggedTurn(next: string, turnId = 'turn-1') {
   return { ...finishedTurn(turnId), answer: `The tests pass.\n<smartcompact>${next}</smartcompact>` };
 }
 
+/** Runs one model request of a turn to its end: of the main session, or of a subagent when `agentId` is given. */
+export async function runStep($: TestEngine, index: number, agentId?: string): Promise<void> {
+  const stream = $.turn.step({
+    turnId: 'turn-1',
+    index,
+    model: 'opus',
+    messageCount: 1,
+    ...(agentId === undefined ? {} : { agentId }),
+  });
+
+  for await (const _chunk of stream) {
+    // Reads the stream to its end, as the engine does.
+  }
+}
+
 /** A tool result row of the main session, or of a subagent when `agentId` is given. */
 export function toolResult(agentId?: string, uuid = 'row-1') {
   return {
@@ -158,6 +173,10 @@ export function withoutTime(status: string | undefined): string | undefined {
 }
 
 function answerTurnEvents(on: On): void {
+  // A response with no text and no tool calls. Only the step's start matters to the plugin.
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null };
+  });
   on('turn.complete', (_$, e) => ({ text: e.answer }));
   on('turn.start', (_$, e) => ({ turnId: e.turnId }));
   on('session.start', (_$, e) => ({ cwd: e.cwd }));

@@ -39,6 +39,8 @@ The floor (`minTokens`, 60k by default) counts only the tokens added since a sta
 - The starting point is the first turn of the session, the first turn after a `/clear`, or the first turn after a
   compaction.
 - That first turn itself is never judged.
+- The count starts from the context size when that first turn began: the input of its first model request, so the
+  context plus the prompt. A first turn with only one request counts from its size at the end.
 - So a new session does not count its startup context, and a compaction cannot follow right after another one.
 - Claude Code has no token count before the first answer after a new session or a compaction. A turn that ends
   without a count is not judged, sends no nudge, follows no tag and is not taken as the first turn. The log gets a

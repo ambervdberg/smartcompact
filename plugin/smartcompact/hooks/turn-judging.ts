@@ -63,7 +63,7 @@ export class TurnJudging {
 
     if (firstTurnReason !== undefined) {
       await saveFloorState(engine, this.#floor);
-      logEvent(engine, 'judge-skipped', { reason: firstTurnReason, tokens });
+      logEvent(engine, 'judge-skipped', { reason: firstTurnReason, tokens, baseline: this.#floor.baseline() });
       // The baseline was just set, so the whole floor is left.
       showJudgeCountdown(engine, this.#settings.minTokens);
 
