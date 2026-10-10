@@ -7,7 +7,7 @@ import { COMPACTION_CANCELLED, notInThisMode, settleStub, stubEngine, stubLogged
 
 const SETTINGS = { minTokens: 0, claudeModel: 'haiku' };
 const REQUEST = {
-  reason: 'work is done',
+  source: 'judge' as const,
   tokens: 70000,
   turnsAtEnd: 0,
   instructions: 'Keep the current goal.',

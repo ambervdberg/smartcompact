@@ -136,7 +136,7 @@ export class TurnJudging {
     logEvent(engine, 'judge-yes', verdictDetails);
     await showTimedStatus(engine, 'will compact');
     await this.#compaction.holdAndTry(engine, {
-      reason: answer.verdict.reason,
+      source: 'judge',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
       instructions: JUDGE_INSTRUCTIONS,
@@ -168,10 +168,11 @@ export class TurnJudging {
   }
 }
 
+// The reason sums up the work in the judge's words, so only its length is logged.
 function verdictDetailsOf(tokens: number, answer: JudgeAnswer, latencyMs: number): Record<string, unknown> {
   return {
     tokens,
-    reason: answer.verdict.reason,
+    reasonChars: answer.verdict.reason.length,
     model: answer.model,
     latencyMs,
   };

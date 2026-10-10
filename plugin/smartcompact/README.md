@@ -176,8 +176,9 @@ starts with this line, followed by one bullet per choice. A dashboard can split 
 ## Log
 
 Each decision is written as one JSON line to `~/.claude/smartcompact/log.jsonl` (`SMARTCOMPACT_LOG` picks another
-file). It stays on your machine and keeps only its newest 2 MB. The log keeps no text from the conversation. A line
-holds the event, the time and details such as token counts, the judge's short reason or an error message.
+file). It stays on your machine and keeps only its newest 2 MB. The log keeps no text from the conversation and no
+text the judge wrote. A line holds the event, the time and details such as token counts, the length of the judge's
+reason (`reasonChars`) or an error message.
 
 ## What it reads, sends and writes
 
@@ -208,7 +209,8 @@ the text of the session's tag, the path of the choices file and a heading line w
 **Writes two files, both in its own folder:**
 
 - `~/.claude/smartcompact/log.jsonl`, or the file `SMARTCOMPACT_LOG` names. One line per decision, with the token count
-  and for a judge call the judge's short reason. It keeps no text from the conversation. See [Log](#log).
+  and for a judge call the length of the judge's reason. It keeps no text from the conversation and no text the judge
+  wrote. See [Log](#log).
 - `~/.claude/smartcompact/continue-prompt.md`, only when you run `/smartcompact-prompt` and the file does not exist. It
   is a copy of the shipped default, for you to edit.
 

@@ -20,8 +20,8 @@ type WaitReason = 'prompt has text' | 'dialog open' | 'session busy';
 
 /** A compaction this plugin will run: after a judge yes, or because the session asked for it with its tag. */
 export type CompactionRequest = {
-  /** Logged with `compact-typed`: the judge's reason, or `session asked`. */
-  reason: string;
+  /** Who asked: the judge after a yes, or the session with its tag. Logged in place of any text. */
+  source: 'judge' | 'request';
   tokens: number;
   /** The turn count when the asking turn ended. A higher count when it is held means a new turn took over. */
   turnsAtEnd: number;
@@ -166,7 +166,7 @@ export class PendingCompaction {
 
     const waited = await waitedMs(engine, held);
 
-    logEvent(engine, 'compact-typed', { reason: held.reason, tokens: held.tokens, waitedMs: waited });
+    logEvent(engine, 'compact-typed', { source: held.source, tokens: held.tokens, waitedMs: waited });
     // The engine does not run this plugin's own session.compact hook for this call, so the floor restarts here.
     this.#floor.restartAfterCompaction();
     await saveFloorState(engine, this.#floor);

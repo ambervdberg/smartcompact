@@ -39,7 +39,7 @@ describe('a tag at the end of a main answer', () => {
     expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-typed', 'continue-typed']);
     expect(loggedLines(session)[0]).toMatchObject({ event: 'compact-requested', tokens: 0 });
     expect(loggedLines(session)[0]).not.toHaveProperty('next');
-    expect(loggedLines(session)[1]).toMatchObject({ reason: 'session asked', tokens: 0 });
+    expect(loggedLines(session)[1]).toMatchObject({ source: 'request', tokens: 0 });
     expect(session.statuses.map(withoutTime)).toEqual(['will compact', 'compacting...', 'compacted', 'continued']);
   });
 

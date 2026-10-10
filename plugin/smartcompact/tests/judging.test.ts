@@ -145,7 +145,7 @@ describe('judge log lines', () => {
   ];
 
   for (const { name, compact, event } of VERDICTS) {
-    test(`a ${name} logs no prompt and no answer`, { options: { minTokens: 0 } }, async ($, on) => {
+    test(`a ${name} logs no prompt, no answer and no reason text`, { options: { minTokens: 0 } }, async ($, on) => {
       const clock = mock.clock(on, { now: START });
       mock.env(on, HOME);
       const session = fakeSession(on);
@@ -157,11 +157,26 @@ describe('judge log lines', () => {
 
       const line = loggedLines(session).find((logged) => logged['event'] === event);
 
-      expect(line).toMatchObject({ event, reason: 'a short reason' });
+      expect(line).toMatchObject({ event, reasonChars: 14 });
+      expect(line).not.toHaveProperty('reason');
       expect(line).not.toHaveProperty('prompt');
       expect(line).not.toHaveProperty('answer');
     });
   }
+
+  test('the compaction after a yes logs no reason text', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.claudeReply = () => claudeVerdict(true, 'a short reason');
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    const logged = JSON.stringify(loggedLines(session));
+
+    expect(logged).not.toContain('a short reason');
+  });
 });
 
 describe('judge errors', () => {

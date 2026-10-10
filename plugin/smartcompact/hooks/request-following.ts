@@ -14,9 +14,6 @@ import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 import type { FinishedTurn } from './turn-judging.ts';
 
-/** The `compact-typed` reason of a compaction the session asked for. */
-const SESSION_ASKED = 'session asked';
-
 /**
  * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
  * or when it would loop, continues without a compaction below the floor, and else hands it to the pending compaction.
@@ -84,7 +81,7 @@ export class RequestFollowing {
 
     await showTimedStatus(engine, 'will compact');
     await this.#compaction.holdAndTry(engine, {
-      reason: SESSION_ASKED,
+      source: 'request',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
       instructions: instructionsForRequest(request.next),
