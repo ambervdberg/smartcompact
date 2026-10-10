@@ -53,6 +53,6 @@ In `plugin/smartcompact`:
   starts with `smartcompact-`.
 - `claude -p` cannot compact (`$.session.compact is not available in this mode`). Its first turn is a first turn of
   session, so a nudge shows only in a second turn: run again with `--resume <session id>`. Tell this error apart with
-  `isUnavailableInThisMode()` (`mode-unavailable.ts`). Such a compaction is dropped and a judge skips.
+  `isUnavailableInThisMode()` (`mode-unavailable.ts`). Such a compaction is dropped, a judge skips and a tag request is ignored, all with no error status.
 - The test kit skips a test hook that throws, and the call then fails with `no implementation for <event>`. A test
   that needs the engine's own error text uses `tests/stub-engine.ts`.

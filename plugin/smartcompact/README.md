@@ -63,7 +63,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `keep going 14:02` | The judge said this is no good moment to compact. |
 | `will compact 14:02` | The judge said yes or the session asked. The compaction follows when the session is free. |
 | `yes cancelled 14:02` | The judge said yes, but a new turn or subagent started meanwhile. |
-| `request ignored 14:02` | The session asked, but subagents still ran or the loop guard held. The log says why. |
+| `request ignored 14:02` | The session asked, but subagents still ran, the loop guard held or the turn had no token count yet. The log says why. |
 | `waiting for empty prompt` | A compaction waits until you empty the prompt box. |
 | `waiting for idle` | A compaction waits for a dialog to close or for the session to be free. |
 | `compacting...`, `compacted 14:03` | The compaction runs or has finished. |
