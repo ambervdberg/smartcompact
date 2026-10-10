@@ -111,8 +111,15 @@ Above the token floor, a tool result of the main conversation can be followed by
 > undo, such as a push, a delete or a publish.
 
 After a nudge, a question for you goes into the tag. After the compaction the shipped continue prompt asks Claude to
-decide it. Your own continue prompt can ask Claude to write that choice to the [choices file](#choices-file). A yes or
-no on an action that is hard to undo stays a normal stop for you to answer.
+ask it again. To let Claude decide and go on without you, put a line like this in your own
+[continue prompt](#continue-prompt):
+
+```
+- If you were waiting on a choice from me, make the best decision and go on.
+```
+
+Your own continue prompt can also ask Claude to write that choice to the [choices file](#choices-file). A yes or no
+on an action that is hard to undo stays a normal stop for you to answer.
 
 The number is the tokens added since the floor started counting, in thousands. The first note comes with the first
 tool result above the floor. The next one comes each time the conversation grows another half floor, at least 10k.

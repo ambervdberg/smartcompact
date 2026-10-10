@@ -18,7 +18,7 @@ const JUDGE_INSTRUCTIONS = 'Keep the current goal, the next step and open decisi
 const DOCS_INSTRUCTIONS = 'Keep the current goal, open decisions and what this next step needs: Write the docs.';
 const COMPACTED_LINE = 'Context was compacted automatically.';
 const PROMPT_BODY = [
-  '- If you were waiting on a choice from me, make the best decision and go on.',
+  '- If you were waiting for me (a question, a choice or a review), ask it again.',
   '- If the current task or plan has more steps, do the next one.',
   '- If all work is done, stop and say so.',
 ];
