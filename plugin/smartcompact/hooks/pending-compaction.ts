@@ -6,19 +6,25 @@ import { messageOf } from './error-message.ts';
 import { submitContinuePrompt } from './continue-prompt-submit.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 
 // No engine event says that a dialog closed, so a busy session is retried on a clock: two minutes at most.
 const RETRY_MS = 3000;
 const MAX_RETRIES = 40;
+// How the engine's error for a compaction the person cancelled ends.
+const COMPACTION_CANCELLED = 'Compaction canceled.';
 
 type WaitReason = 'prompt has text' | 'dialog open' | 'session busy';
 
+/** Who asked for a compaction: the judge after a yes, or the session with its tag. */
+export type CompactionSource = 'judge' | 'request';
+
 /** A compaction this plugin will run: after a judge yes, or because the session asked for it with its tag. */
 export type CompactionRequest = {
-  /** Logged with `compact-typed`: the judge's reason, or `session asked`. */
-  reason: string;
+  /** Logged with each row of the compaction, so the log tells the two paths apart. */
+  source: CompactionSource;
   tokens: number;
   /** The turn count when the asking turn ended. A higher count when it is held means a new turn took over. */
   turnsAtEnd: number;
@@ -59,7 +65,7 @@ export class PendingCompaction {
   /** Holds the request and tries to compact right away. */
   async holdAndTry(engine: Engine, request: CompactionRequest): Promise<void> {
     if (this.#turns.hasChangedSince(request.turnsAtEnd)) {
-      await this.#dropBeforeHold(engine);
+      await this.#dropBeforeHold(engine, request);
 
       return;
     }
@@ -86,13 +92,13 @@ export class PendingCompaction {
     }
 
     held.timer?.cancel();
-    logEvent(engine, 'compact-dropped', { reason, waitedMs: (await engine.now()) - held.heldAt });
+    logEvent(engine, 'compact-dropped', { source: held.source, reason, waitedMs: await waitedMs(engine, held) });
     await showTimedStatus(engine, 'dropped');
   }
 
   // The new turn's drop ran while the request was still on its way here, so it found nothing to drop.
-  async #dropBeforeHold(engine: Engine): Promise<void> {
-    logEvent(engine, 'compact-dropped', { reason: 'new turn started', waitedMs: 0 });
+  async #dropBeforeHold(engine: Engine, request: CompactionRequest): Promise<void> {
+    logEvent(engine, 'compact-dropped', { source: request.source, reason: 'new turn started', waitedMs: 0 });
     await showTimedStatus(engine, 'dropped');
   }
 
@@ -141,12 +147,14 @@ export class PendingCompaction {
     const turnsAtCompact = this.#turns.count();
 
     engine.status('compacting...');
+    // Shows that the compact call began, also when no outcome row follows.
+    logEvent(engine, 'compact-started', { source: held.source, tokens: held.tokens, retries: held.retries });
 
     try {
       const result = await engine.compact({ instructions: held.instructions });
 
       if (result.skip !== undefined) {
-        logEvent(engine, 'compact-failed', { message: result.skip });
+        logEvent(engine, 'compact-failed', { source: held.source, message: result.skip });
         await showTimedStatus(engine, 'compact skipped');
 
         if (held.continueWhenSkipped) {
@@ -156,26 +164,31 @@ export class PendingCompaction {
         return;
       }
     } catch (error) {
-      await this.#holdAgainWhenStillIdle(engine, held, turnsAtCompact, error);
+      await this.#handleCompactError(engine, held, turnsAtCompact, error);
 
       return;
     }
 
     const waited = await waitedMs(engine, held);
 
-    logEvent(engine, 'compact-typed', { reason: held.reason, tokens: held.tokens, waitedMs: waited });
+    logEvent(engine, 'compact-typed', { source: held.source, tokens: held.tokens, waitedMs: waited });
     // The engine does not run this plugin's own session.compact hook for this call, so the floor restarts here.
     this.#floor.restartAfterCompaction();
     await saveFloorState(engine, this.#floor);
     await showTimedStatus(engine, 'compacted');
-    await submitContinuePrompt(engine, this.#turns, turnsAtCompact, { next: held.next, isAfterCompaction: true });
+    await submitContinuePrompt(engine, this.#turns, turnsAtCompact, {
+      next: held.next,
+      kind: 'after-compaction',
+      source: held.source,
+    });
   }
 
   // Nothing was compacted, so the prompt goes out without the compacted line and the send is reported.
   async #continueAfterSkip(engine: Engine, held: HeldRequest, turnsAtCompact: number): Promise<void> {
     const sent = await submitContinuePrompt(engine, this.#turns, turnsAtCompact, {
       next: held.next,
-      isAfterCompaction: false,
+      kind: 'after-skip',
+      source: held.source,
     });
 
     if (sent) {
@@ -183,22 +196,30 @@ export class PendingCompaction {
     }
   }
 
-  // The engine refuses a compaction while a turn runs. A turn that started is a drop, anything else is a wait.
-  async #holdAgainWhenStillIdle(
-    engine: Engine,
-    held: HeldRequest,
-    turnsAtCompact: number,
-    error: unknown,
-  ): Promise<void> {
+  // The engine refuses a compaction while a turn runs. A turn that started is a drop. A mode without compaction or a
+  // cancel by the person is a drop too, since a retry cannot work or would undo the cancel. Anything else is a wait.
+  async #handleCompactError(engine: Engine, held: HeldRequest, turnsAtCompact: number, error: unknown): Promise<void> {
+    const { source } = held;
+
     if (this.#turns.hasChangedSince(turnsAtCompact)) {
-      logEvent(engine, 'compact-dropped', { reason: 'new turn started', waitedMs: await waitedMs(engine, held) });
+      logEvent(engine, 'compact-dropped', { source, reason: 'new turn started', waitedMs: await waitedMs(engine, held) });
+
+      return;
+    }
+
+    const finalReason = finalReasonOf(error);
+
+    if (finalReason !== undefined) {
+      logEvent(engine, 'compact-failed', { source, message: messageOf(error) });
+      logEvent(engine, 'compact-dropped', { source, reason: finalReason, waitedMs: await waitedMs(engine, held) });
+      await showTimedStatus(engine, 'dropped');
 
       return;
     }
 
     // Logged once per wait. The retries stay quiet.
     if (held.loggedWait !== 'session busy') {
-      logEvent(engine, 'compact-failed', { message: messageOf(error) });
+      logEvent(engine, 'compact-failed', { source, message: messageOf(error) });
     }
 
     this.#held = held;
@@ -235,6 +256,15 @@ export class PendingCompaction {
 
     return held;
   }
+}
+
+// The drop reason for an error no retry can fix, else undefined.
+function finalReasonOf(error: unknown): string | undefined {
+  if (isUnavailableInThisMode(error)) {
+    return NOT_IN_THIS_MODE;
+  }
+
+  return messageOf(error).endsWith(COMPACTION_CANCELLED) ? 'cancelled' : undefined;
 }
 
 async function waitedMs(engine: Engine, held: HeldRequest): Promise<number> {

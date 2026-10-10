@@ -33,7 +33,8 @@ const NO_USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_token
 export type FakeSession = {
   /** Change it to stand in for a /resume to another session in the same process. */
   id: string;
-  tokens: number;
+  /** Undefined stands in for the time before the first response, when the engine has no count yet. */
+  tokens: number | undefined;
   draft: string;
   isDialogOpen: boolean;
   agents: AgentInfo[];
@@ -126,6 +127,21 @@ export function taggedTurn(next: string, turnId = 'turn-1') {
   return { ...finishedTurn(turnId), answer: `The tests pass.\n<smartcompact>${next}</smartcompact>` };
 }
 
+/** Runs one model request of a turn to its end: of the main session, or of a subagent when `agentId` is given. */
+export async function runStep($: TestEngine, index: number, agentId?: string): Promise<void> {
+  const stream = $.turn.step({
+    turnId: 'turn-1',
+    index,
+    model: 'opus',
+    messageCount: 1,
+    ...(agentId === undefined ? {} : { agentId }),
+  });
+
+  for await (const _chunk of stream) {
+    // Reads the stream to its end, as the engine does.
+  }
+}
+
 /** A tool result row of the main session, or of a subagent when `agentId` is given. */
 export function toolResult(agentId?: string, uuid = 'row-1') {
   return {
@@ -157,6 +173,10 @@ export function withoutTime(status: string | undefined): string | undefined {
 }
 
 function answerTurnEvents(on: On): void {
+  // A response with no text and no tool calls. Only the step's start matters to the plugin.
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null };
+  });
   on('turn.complete', (_$, e) => ({ text: e.answer }));
   on('turn.start', (_$, e) => ({ turnId: e.turnId }));
   on('session.start', (_$, e) => ({ cwd: e.cwd }));
@@ -172,7 +192,11 @@ function answerSessionCalls(on: On, session: FakeSession): void {
   on('session.id', () => ({ value: session.id }));
   on('session.cwd', () => ({ value: 'C:/work' }));
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { tokens: session.tokens, window: 200000 }, rateLimits: [] },
+    value: {
+      startedAt: 0,
+      context: { ...(session.tokens === undefined ? {} : { tokens: session.tokens }), window: 200000 },
+      rateLimits: [],
+    },
   }));
   on('session.messages', () => ({ value: session.messages }));
   on('agent.list', () => ({ value: session.agents }));

@@ -3,6 +3,7 @@ import { readCompactRequest } from './compact-request.ts';
 import { CompactNudge } from './compact-nudge.ts';
 import { withCompactRule } from './compact-rule.ts';
 import { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
@@ -33,9 +34,11 @@ export const register: Register = (on, options) => {
     await startFloor(engine, floor);
     nudge.startCountOver();
 
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+    // A new session has no count before its first response, and nothing is added yet.
+    const added = tokens === undefined ? 0 : floor.addedTokens(tokens);
 
-    showJudgeCountdown(engine, settings.minTokens - floor.addedTokens(tokens));
+    showJudgeCountdown(engine, settings.minTokens - added);
     await registerPromptCommand(engine);
 
     return next(e);
@@ -47,6 +50,20 @@ export const register: Register = (on, options) => {
     void compaction.drop(engineOf($), 'new turn started');
 
     return next(e);
+  });
+
+  // The count before a main step after the first is the first request's input: the context at turn start plus the
+  // prompt. The stream passes on unchanged.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined && e.index >= 1 && floor.state().waitingFor !== null) {
+      const tokens = await contextTokens(engineOf($));
+
+      if (tokens !== undefined) {
+        floor.noteTurnStartReading(tokens);
+      }
+    }
+
+    return yield* next(e);
   });
 
   // The judge or the tag's request runs after the turn has settled, so the turn never waits on it.
@@ -101,9 +118,8 @@ export const register: Register = (on, options) => {
   on('session.compact', async ($, e, next) => {
     if (e.agentId === undefined && (e.trigger === 'manual' || e.trigger === 'auto')) {
       const engine = engineOf($);
-      const tokens = (await engine.usage()).context.tokens ?? 0;
-
-      logEvent(engine, 'compact-other', { trigger: e.trigger, tokens });
+      // A missing count leaves the tokens field out of the row.
+      logEvent(engine, 'compact-other', { trigger: e.trigger, tokens: await contextTokens(engine) });
       await compaction.drop(engine, `${e.trigger} compact`);
     }
 
@@ -117,13 +133,14 @@ export const register: Register = (on, options) => {
     return compacted;
   });
 
-  // A /clear fires no session.start, so the floor starts over here.
+  // A /clear fires no session.start, so the floor and its countdown start over here.
   on('session.end', async ($, e, next) => {
     await compaction.drop(engineOf($), `session ${e.reason}`);
 
     if (e.reason === 'clear') {
       floor.startNewSession();
       nudge.startCountOver();
+      showJudgeCountdown(engineOf($), settings.minTokens);
     }
 
     return next(e);

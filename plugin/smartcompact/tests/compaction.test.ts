@@ -33,7 +33,7 @@ describe('a yes from the judge', () => {
 
     expect(session.compacts).toEqual([INSTRUCTIONS]);
     expect(session.submitted).toEqual([DEFAULT_CONTINUE_PROMPT]);
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-typed', 'continue-typed']);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-started', 'compact-typed', 'continue-typed']);
     expect(session.statuses.map(withoutTime)).toEqual(
       ['judging...', 'will compact', 'compacting...', 'compacted', 'continued'],
     );
@@ -50,7 +50,13 @@ describe('a yes from the judge', () => {
     await clock.settle();
 
     expect(session.compacts).toEqual([INSTRUCTIONS]);
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-typed', 'continue-typed', 'judge-skipped']);
+    expect(loggedEvents(session)).toEqual([
+      'judge-yes',
+      'compact-started',
+      'compact-typed',
+      'continue-typed',
+      'judge-skipped',
+    ]);
     expect(loggedLines(session).at(-1)?.reason).toBe('first turn after compaction');
   });
 
@@ -127,7 +133,7 @@ describe('a yes from the judge', () => {
     await clock.settle();
 
     expect(session.compacts).toEqual([INSTRUCTIONS]);
-    expect(loggedLines(session)[2]).toMatchObject({ event: 'compact-typed', waitedMs: 5000 });
+    expect(loggedLines(session)[3]).toMatchObject({ event: 'compact-typed', waitedMs: 5000 });
   });
 
   test('waits while a dialog is open and retries on the clock', JUDGE_EVERY_TURN, async ($, on) => {
@@ -176,7 +182,7 @@ describe('a yes from the judge', () => {
     await $.turn.complete(finishedTurn());
     await clock.settle();
 
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-failed', 'compact-waiting']);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-started', 'compact-failed', 'compact-waiting']);
     expect(session.statuses.at(-1)).toBe('waiting for idle');
 
     session.compactError = undefined;

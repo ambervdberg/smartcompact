@@ -3,12 +3,12 @@ export type Verdict = {
   reason: string;
 };
 
-/** Parses the model reply and checks its shape. Throws when the reply is not a verdict. */
-export function verdictFrom(reply: string): Verdict {
-  const verdict = JSON.parse(jsonPartOf(reply));
+/** Parses the model reply and checks its shape. Undefined when the reply is not a verdict. */
+export function verdictFrom(reply: string): Verdict | undefined {
+  const verdict = parsedOrUndefined(jsonPartOf(reply));
 
   if (typeof verdict?.compact !== 'boolean') {
-    throw new Error('reply has no boolean compact field');
+    return undefined;
   }
 
   return { compact: verdict.compact, reason: String(verdict.reason ?? '').slice(0, 200) };
@@ -20,4 +20,13 @@ function jsonPartOf(reply: string): string {
   const end = reply.lastIndexOf('}');
 
   return start >= 0 && end > start ? reply.slice(start, end + 1) : reply;
+}
+
+// A reply in prose or cut at the token limit is no JSON.
+function parsedOrUndefined(text: string): { compact?: unknown; reason?: unknown } | undefined {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }

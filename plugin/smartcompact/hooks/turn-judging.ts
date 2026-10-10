@@ -3,10 +3,13 @@ import { askClaudeJudge } from './claude-judge.ts';
 import type { JudgeAnswer } from './claude-judge.ts';
 import { JUDGE_INSTRUCTIONS } from './compact-instructions.ts';
 import type { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
 import { buildJudgeInput } from './judge-input.ts';
+import type { Verdict } from './judge-verdict.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import type { PendingCompaction } from './pending-compaction.ts';
 import type { Settings } from './plugin-settings.ts';
 import { runningSubagentIds } from './running-subagents.ts';
@@ -42,20 +45,36 @@ export class TurnJudging {
     try {
       await this.#judgeWhenWorthIt(engine, turn);
     } catch (error) {
+      // A mode such as `claude -p` lacks calls the judging needs. That is no fault.
+      if (isUnavailableInThisMode(error)) {
+        logEvent(engine, 'judge-skipped', { reason: NOT_IN_THIS_MODE });
+
+        return;
+      }
+
       logEvent(engine, 'judge-error', { message: messageOf(error) });
       await showTimedStatus(engine, 'error');
     }
   }
 
   async #judgeWhenWorthIt(engine: Engine, turn: FinishedTurn): Promise<void> {
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+
+    // A /clear or exit right after the turn can land before the count. The floor keeps waiting.
+    if (tokens === undefined) {
+      logEvent(engine, 'usage-missing', { hook: 'turn.complete' });
+
+      return;
+    }
 
     // Without the skip after a compaction a floor of 0 loops: compact, continue prompt, judged done, compact again.
     const firstTurnReason = this.#floor.takeFirstTurn(tokens);
 
     if (firstTurnReason !== undefined) {
       await saveFloorState(engine, this.#floor);
-      logEvent(engine, 'judge-skipped', { reason: firstTurnReason, tokens });
+      logEvent(engine, 'judge-skipped', { reason: firstTurnReason, tokens, baseline: this.#floor.baseline() });
+      // The baseline was just set, so the whole floor is left.
+      showJudgeCountdown(engine, this.#settings.minTokens);
 
       return;
     }
@@ -102,7 +121,20 @@ export class TurnJudging {
     const startedAt = await engine.now();
     const input = buildJudgeInput(await engine.messages(), turn.answer);
     const answer = await askClaudeJudge(engine, this.#settings, input);
-    const verdictDetails = verdictDetailsOf(tokens, answer, await sinceMs(engine, startedAt));
+    const latencyMs = await sinceMs(engine, startedAt);
+
+    if (answer.verdict === undefined) {
+      this.#treatUnreadableAsNo(engine, tokens, answer, latencyMs);
+
+      return;
+    }
+
+    const verdictDetails = {
+      tokens,
+      added: this.#floor.addedTokens(tokens),
+      baseline: this.#floor.baseline(),
+      ...verdictDetailsOf(answer.verdict, answer.model, latencyMs),
+    };
 
     if (!answer.verdict.compact) {
       logEvent(engine, 'judge-no', verdictDetails);
@@ -118,7 +150,7 @@ export class TurnJudging {
     logEvent(engine, 'judge-yes', verdictDetails);
     await showTimedStatus(engine, 'will compact');
     await this.#compaction.holdAndTry(engine, {
-      reason: answer.verdict.reason,
+      source: 'judge',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
       instructions: JUDGE_INSTRUCTIONS,
@@ -126,6 +158,14 @@ export class TurnJudging {
       continueWhenSkipped: false,
       errorEvent: 'judge-error',
     });
+  }
+
+  // A reply in prose or cut at the token limit is the judge's slip, so the line keeps its countdown and shows no error.
+  #treatUnreadableAsNo(engine: Engine, tokens: number, answer: JudgeAnswer, latencyMs: number): void {
+    const { replyChars, outputTokens, model } = answer;
+
+    logEvent(engine, 'judge-unreadable', { tokens, replyChars, outputTokens, model, latencyMs });
+    showJudgeCountdown(engine, this.#settings.minTokens - this.#floor.addedTokens(tokens));
   }
 
   /** The race guard: a turn that started or a subagent that runs since the turn ended cancels the yes. */
@@ -150,11 +190,11 @@ export class TurnJudging {
   }
 }
 
-function verdictDetailsOf(tokens: number, answer: JudgeAnswer, latencyMs: number): Record<string, unknown> {
+// The reason sums up the work in the judge's words, so only its length is logged.
+function verdictDetailsOf(verdict: Verdict, model: string, latencyMs: number): Record<string, unknown> {
   return {
-    tokens,
-    reason: answer.verdict.reason,
-    model: answer.model,
+    reasonChars: verdict.reason.length,
+    model,
     latencyMs,
   };
 }

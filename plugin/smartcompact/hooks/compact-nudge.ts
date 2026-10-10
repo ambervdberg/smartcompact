@@ -1,4 +1,5 @@
 import type { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
@@ -64,7 +65,14 @@ export class CompactNudge {
   }
 
   async #nudgeIfDue(engine: Engine): Promise<void> {
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+
+    if (tokens === undefined) {
+      logEvent(engine, 'usage-missing', { hook: 'session.append' });
+
+      return;
+    }
+
     const added = this.#floor.addedTokens(tokens);
 
     if (!this.#isDue(added)) {

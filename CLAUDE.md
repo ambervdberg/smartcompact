@@ -41,13 +41,18 @@ In `plugin/smartcompact`:
   `/exit` and `--resume` do not reload it. `claude respawn <id>` does.
 - The engine shows `$.ui.status` text as `⚠ smartcompact: <text>`. Do not add the plugin name.
 - The first turn after a compaction is never judged, else a low floor loops: compact, continue, compact. The first turn
-  of a new session is not judged either, because its startup context (about 80k) is not work done. The plugin README
-  (Token floor) has the full rules.
+  of a new session is not judged either, because its startup context (about 80k) is not work done. A resume without
+  saved floor state counts as a new session. The plugin README (Token floor) has the full rules.
 - A `/clear` fires `session.end` with reason `clear` and no `session.start`. `register.ts` resets the floor in
   `session.end`.
+- `$.session.usage().context.tokens` is undefined until the first response after a new session or a compaction. Read
+  it with `contextTokens()` (`context-tokens.ts`) and skip the work on undefined. Read as 0 it sets a baseline of 0.
 - API gaps: `$.fs` has no append (the log is read and rewritten). No idle or dialog-closed event. `$.prompt.read()`
   gives an empty draft under a dialog, a refused empty `$.prompt.fill` tells a dialog apart.
 - A command from `$.command.register` runs by its bare name. The engine adds no plugin prefix, so the name itself
   starts with `smartcompact-`.
 - `claude -p` cannot compact (`$.session.compact is not available in this mode`). Its first turn is a first turn of
-  session, so a nudge shows only in a second turn: run again with `--resume <session id>`.
+  session, so a nudge shows only in a second turn: run again with `--resume <session id>`. Tell this error apart with
+  `isUnavailableInThisMode()` (`mode-unavailable.ts`). Such a compaction is dropped, a judge skips and a tag request is ignored, all with no error status.
+- The test kit skips a test hook that throws, and the call then fails with `no implementation for <event>`. A test
+  that needs the engine's own error text uses `tests/stub-engine.ts`.

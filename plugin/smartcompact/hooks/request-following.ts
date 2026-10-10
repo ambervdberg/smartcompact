@@ -1,20 +1,19 @@
 import { instructionsForRequest } from './compact-instructions.ts';
 import type { CompactRequest } from './compact-request.ts';
 import type { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import { submitContinuePrompt } from './continue-prompt-submit.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import type { PendingCompaction } from './pending-compaction.ts';
 import type { Settings } from './plugin-settings.ts';
 import { runningSubagentIds } from './running-subagents.ts';
 import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 import type { FinishedTurn } from './turn-judging.ts';
-
-/** The `compact-typed` reason of a compaction the session asked for. */
-const SESSION_ASKED = 'session asked';
 
 /**
  * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
@@ -42,23 +41,40 @@ export class RequestFollowing {
     try {
       await this.#follow(engine, turn, request);
     } catch (error) {
+      // A mode such as `claude -p` lacks calls the request needs. That is no fault.
+      if (isUnavailableInThisMode(error)) {
+        logEvent(engine, 'request-ignored', { reason: NOT_IN_THIS_MODE });
+
+        return;
+      }
+
       logEvent(engine, 'request-error', { message: messageOf(error) });
       await showTimedStatus(engine, 'error');
     }
   }
 
   async #follow(engine: Engine, turn: FinishedTurn, request: CompactRequest): Promise<void> {
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
 
-    logEvent(engine, 'compact-requested', { tokens });
-    await this.#takeFirstTurn(engine, tokens);
+    // Without a size the floor rules cannot pick between a compaction and a continue, so nothing runs.
+    if (tokens === undefined) {
+      logEvent(engine, 'usage-missing', { hook: 'turn.complete' });
+      await showTimedStatus(engine, 'request ignored');
+
+      return;
+    }
+
+    const isFirstTurn = await this.#takeFirstTurn(engine, tokens);
+    const added = this.#floor.addedTokens(tokens);
+
+    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline() });
 
     if (await this.#hasRunningSubagents(engine)) {
       return;
     }
 
-    const added = this.#floor.addedTokens(tokens);
-    const isBelowFloor = added < this.#settings.minTokens;
+    // A first turn always counts as 0 added. Counted from its own start, one turn of work could pass the floor.
+    const isBelowFloor = (isFirstTurn ? 0 : added) < this.#settings.minTokens;
 
     if (this.#wouldLoop(turn, isBelowFloor)) {
       logEvent(engine, 'request-ignored', { reason: 'loop guard', tokens, added });
@@ -75,7 +91,7 @@ export class RequestFollowing {
 
     await showTimedStatus(engine, 'will compact');
     await this.#compaction.holdAndTry(engine, {
-      reason: SESSION_ASKED,
+      source: 'request',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
       instructions: instructionsForRequest(request.next),
@@ -88,11 +104,15 @@ export class RequestFollowing {
     });
   }
 
-  // A tagged turn is never skipped, but it sets the baseline as an untagged first turn would.
-  async #takeFirstTurn(engine: Engine, tokens: number): Promise<void> {
-    if (this.#floor.takeFirstTurn(tokens) !== undefined) {
-      await saveFloorState(engine, this.#floor);
+  // A tagged turn is never skipped, but it sets the baseline as an untagged first turn would. True when it did.
+  async #takeFirstTurn(engine: Engine, tokens: number): Promise<boolean> {
+    if (this.#floor.takeFirstTurn(tokens) === undefined) {
+      return false;
     }
+
+    await saveFloorState(engine, this.#floor);
+
+    return true;
   }
 
   // On purpose: a finishing subagent wakes the session with a task notification, so it never hangs.
@@ -111,7 +131,7 @@ export class RequestFollowing {
 
   // Stops a session that tags again at once: prompt, tag, prompt. After a skipped compaction the next one is skipped
   // too, so that continue counts at any token count. A continue after a compaction does not count, because the
-  // first turn after a compaction always reads 0 added tokens.
+  // first turn after a compaction always counts as 0 added tokens.
   #wouldLoop(turn: FinishedTurn, isBelowFloor: boolean): boolean {
     if (isRightAfter(turn, this.#continuedAfterSkipAt)) {
       return true;
@@ -124,7 +144,8 @@ export class RequestFollowing {
   async #continueBelowFloor(engine: Engine, turn: FinishedTurn, request: CompactRequest): Promise<void> {
     const sent = await submitContinuePrompt(engine, this.#turns, turn.turnsAtEnd, {
       next: request.next,
-      isAfterCompaction: false,
+      kind: 'below-floor',
+      source: 'request',
     });
 
     if (sent) {

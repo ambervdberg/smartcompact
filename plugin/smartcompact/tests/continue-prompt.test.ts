@@ -46,7 +46,7 @@ describe('the continue prompt file', () => {
     await clock.settle();
 
     expect(session.submitted).toEqual([]);
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-typed']);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-started', 'compact-typed']);
   });
 
   test('an override of blank lines turns it off too', JUDGE_EVERY_TURN, async ($, on) => {

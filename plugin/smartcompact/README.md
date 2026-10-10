@@ -39,9 +39,14 @@ The floor (`minTokens`, 60k by default) counts only the tokens added since a sta
 - The starting point is the first turn of the session, the first turn after a `/clear`, or the first turn after a
   compaction.
 - That first turn itself is never judged.
+- The count starts from the context size when that first turn began: the input of its first model request, so the
+  context plus the prompt. A first turn with only one request counts from its size at the end.
 - So a new session does not count its startup context, and a compaction cannot follow right after another one.
-- A resumed or respawned session keeps its saved count. A session that started before the count was saved counts
-  from 0.
+- Claude Code has no token count before the first answer after a new session or a compaction. A turn that ends
+  without a count is not judged, sends no nudge, follows no tag and is not taken as the first turn. The log gets a
+  `usage-missing` line.
+- A resumed or respawned session keeps its saved count. A resumed session without a saved count starts over as a
+  new session: its first turn is not judged and sets the starting point.
 
 A line under the prompt box shows what it is doing, for example `smartcompact: judge in 48k`. It sits next to Claude
 Code's own notices. A custom `statusLine` script does not show it.
@@ -50,7 +55,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 
 | Status | Meaning |
 | --- | --- |
-| `judge in 48k` | Below the token floor. The judge is asked once the conversation has grown 48k more tokens. A new session shows the full floor until its first turn ends. |
+| `judge in 48k` | Below the token floor. The judge is asked once the conversation has grown 48k more tokens. A new session and a `/clear` show the full floor. So does the first turn after them or after a compaction, because that turn sets the starting point. |
 | `judge after next turn` | The floor is reached. The judge is asked when the next turn ends. |
 | `waiting for subagents` | Subagents still run, so the judge was not asked. |
 | `nudged 14:02` | The session was asked to compact at the next good moment. |
@@ -58,14 +63,14 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `keep going 14:02` | The judge said this is no good moment to compact. |
 | `will compact 14:02` | The judge said yes or the session asked. The compaction follows when the session is free. |
 | `yes cancelled 14:02` | The judge said yes, but a new turn or subagent started meanwhile. |
-| `request ignored 14:02` | The session asked, but subagents still ran or the loop guard held. The log says why. |
+| `request ignored 14:02` | The session asked, but subagents still ran, the loop guard held or the turn had no token count yet. The log says why. |
 | `waiting for empty prompt` | A compaction waits until you empty the prompt box. |
 | `waiting for idle` | A compaction waits for a dialog to close or for the session to be free. |
 | `compacting...`, `compacted 14:03` | The compaction runs or has finished. |
 | `compact skipped 14:03` | Claude Code skipped the compaction, for example because a hook blocked it. |
 | `continued 14:03` | The continue prompt was sent. |
-| `dropped 14:03` | A new turn started or the session stayed busy, so the compaction was dropped. |
-| `error 14:02` | The judge or a session's request failed. The log says why. |
+| `dropped 14:03` | A new turn started, the session stayed busy, you cancelled the compaction or this mode cannot compact (`claude -p`), so the compaction was dropped. |
+| `error 14:02` | The judge or a session's request failed. The log says why. A judge reply that is no verdict counts as no and keeps the countdown. The log has a `judge-unreadable` line. |
 
 ## When the session asks
 
@@ -171,8 +176,10 @@ starts with this line, followed by one bullet per choice. A dashboard can split 
 ## Log
 
 Each decision is written as one JSON line to `~/.claude/smartcompact/log.jsonl` (`SMARTCOMPACT_LOG` picks another
-file). It stays on your machine and keeps only its newest 2 MB. The log keeps no text from the conversation. A line
-holds the event, the time and details such as token counts, the judge's short reason or an error message.
+file). It stays on your machine and keeps only its newest 2 MB. The log keeps no text from the conversation and no
+text the judge wrote. A line holds the event, the time and details such as token counts, the length of the judge's
+reason (`reasonChars`) or an error message. The rows of a compaction carry `source`: `judge` or `request` (the
+session's tag). A `compact-started` row shows that the compact call began.
 
 ## What it reads, sends and writes
 
@@ -203,7 +210,8 @@ the text of the session's tag, the path of the choices file and a heading line w
 **Writes two files, both in its own folder:**
 
 - `~/.claude/smartcompact/log.jsonl`, or the file `SMARTCOMPACT_LOG` names. One line per decision, with the token count
-  and for a judge call the judge's short reason. It keeps no text from the conversation. See [Log](#log).
+  and for a judge call the length of the judge's reason. It keeps no text from the conversation and no text the judge
+  wrote. See [Log](#log).
 - `~/.claude/smartcompact/continue-prompt.md`, only when you run `/smartcompact-prompt` and the file does not exist. It
   is a copy of the shipped default, for you to edit.
 

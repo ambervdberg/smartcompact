@@ -6,8 +6,9 @@ const HOME = { USERPROFILE: 'C:/home' };
 
 describe('token floor', () => {
   test('shows the countdown from the current context as soon as the session starts', async ($, on) => {
+    mock.clock(on, { now: START });
     mock.env(on, HOME);
-    const session = fakeSession(on);
+    const session = fakeSession(on, { floors: { 'session-1': { baseline: 0, waitingFor: null, savedAt: START } } });
 
     session.tokens = 25000;
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
@@ -18,7 +19,7 @@ describe('token floor', () => {
   test('a resumed session above the floor is judged after its next turn', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
-    const session = fakeSession(on);
+    const session = fakeSession(on, { floors: { 'session-1': { baseline: 0, waitingFor: null, savedAt: START } } });
 
     session.tokens = 188000;
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
@@ -144,7 +145,7 @@ describe('judge log lines', () => {
   ];
 
   for (const { name, compact, event } of VERDICTS) {
-    test(`a ${name} logs no prompt and no answer`, { options: { minTokens: 0 } }, async ($, on) => {
+    test(`a ${name} logs no prompt, no answer and no reason text`, { options: { minTokens: 0 } }, async ($, on) => {
       const clock = mock.clock(on, { now: START });
       mock.env(on, HOME);
       const session = fakeSession(on);
@@ -156,11 +157,26 @@ describe('judge log lines', () => {
 
       const line = loggedLines(session).find((logged) => logged['event'] === event);
 
-      expect(line).toMatchObject({ event, reason: 'a short reason' });
+      expect(line).toMatchObject({ event, reasonChars: 14 });
+      expect(line).not.toHaveProperty('reason');
       expect(line).not.toHaveProperty('prompt');
       expect(line).not.toHaveProperty('answer');
     });
   }
+
+  test('the compaction after a yes logs no reason text', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.claudeReply = () => claudeVerdict(true, 'a short reason');
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    const logged = JSON.stringify(loggedLines(session));
+
+    expect(logged).not.toContain('a short reason');
+  });
 });
 
 describe('judge errors', () => {
@@ -180,16 +196,31 @@ describe('judge errors', () => {
     expect(session.compacts).toEqual([]);
   });
 
-  test('a reply that is no verdict is a judge error', { options: { minTokens: 0 } }, async ($, on) => {
+  test('a reply that is no verdict counts as no and shows no error', { options: { minTokens: 0 } }, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
-    session.claudeReply = () => ({ isAnswered: true, text: 'I think so', usage: noUsage() });
+    session.claudeReply = () => ({ isAnswered: true, text: 'I think so', usage: { ...noUsage(), output_tokens: 4 } });
 
     await $.turn.complete(finishedTurn());
     await clock.settle();
 
-    expect(loggedEvents(session)).toEqual(['judge-error']);
+    expect(loggedLines(session)).toMatchObject([{ event: 'judge-unreadable', replyChars: 10, outputTokens: 4 }]);
+    expect(loggedLines(session)[0]).not.toHaveProperty('reply');
+    expect(session.compacts).toEqual([]);
+    expect(session.statuses.at(-1)).toBe('judge after next turn');
+  });
+
+  test('a verdict without a boolean compact field counts as no', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.claudeReply = () => ({ isAnswered: true, text: '{"compact": "yes"}', usage: noUsage() });
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(loggedEvents(session)).toEqual(['judge-unreadable']);
     expect(session.compacts).toEqual([]);
   });
 
@@ -206,6 +237,64 @@ describe('judge errors', () => {
       event: 'judge-error',
       message: 'model gave no answer: empty-reply',
     });
+  });
+});
+
+describe('a missing token count', () => {
+  const START_ARGS = { cwd: 'C:/work', surface: 'terminal', isInteractive: true } as const;
+
+  test('leaves the floor waiting and judges nothing', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.messages = [];
+    session.tokens = undefined;
+    await $.session.start(START_ARGS);
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.compacts).toEqual([]);
+    expect(session.statuses).toEqual(['judge in 60k']);
+    expect(loggedLines(session)).toMatchObject([{ event: 'usage-missing', hook: 'turn.complete' }]);
+    expect(session.store.get('floors')).toBeUndefined();
+  });
+
+  test('the next turn with a count is the first turn', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.messages = [];
+    session.tokens = undefined;
+    await $.session.start(START_ARGS);
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    session.tokens = 80000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(loggedLines(session).at(-1)).toMatchObject({
+      event: 'judge-skipped',
+      reason: 'first turn of session',
+      tokens: 80000,
+    });
+  });
+
+  test('judges nothing with a floor of 0', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = undefined;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.compacts).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['usage-missing']);
   });
 });
 
@@ -284,15 +373,29 @@ describe('first turn of a session', () => {
     expect(session.statuses).toEqual(['judge in 40k']);
   });
 
-  test('a resumed session with messages and no saved state counts from 0', async ($, on) => {
-    mock.clock(on, { now: START });
+  test('a resumed session with messages and no saved state skips its first turn and counts from it', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
 
     session.tokens = 100000;
     await $.session.start(START_ARGS);
 
-    expect(session.statuses).toEqual(['judge after next turn']);
+    expect(session.statuses).toEqual(['judge in 60k']);
+
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(loggedLines(session)).toMatchObject([
+      { event: 'judge-skipped', reason: 'first turn of session', baseline: 100000 },
+    ]);
+
+    session.tokens = 130000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(session.statuses.at(-1)).toBe('judge in 30k');
   });
 
   test('a resume to another session without saved state drops the previous baseline', async ($, on) => {
@@ -311,7 +414,12 @@ describe('first turn of a session', () => {
     session.tokens = 100000;
     await $.session.start(START_ARGS);
 
-    expect(session.statuses.at(-1)).toBe('judge after next turn');
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
+
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(loggedLines(session).at(-1)).toMatchObject({ reason: 'first turn of session', baseline: 100000 });
   });
 
   test('a /clear ends the session without a start, so its next turn is skipped as a first turn', async ($, on) => {
@@ -328,6 +436,58 @@ describe('first turn of a session', () => {
 
     expect(session.claudeModels).toEqual([]);
     expect(loggedLines(session)).toMatchObject([{ event: 'judge-skipped', reason: 'first turn of session' }]);
+  });
+
+  test('a /clear shows the full floor at once', async ($, on) => {
+    mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const saved = { 'session-1': { baseline: 10000, waitingFor: null, savedAt: START } };
+    const session = fakeSession(on, { floors: saved });
+
+    session.tokens = 35000;
+    await $.session.start(START_ARGS);
+
+    expect(session.statuses).toEqual(['judge in 35k']);
+
+    await $.session.end({ reason: 'clear', sessionId: 'session-1', resume: { id: 'session-1' } });
+
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
+  });
+
+  test('the first turn after a /clear shows the full floor', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const saved = { 'session-1': { baseline: 10000, waitingFor: null, savedAt: START } };
+    const session = fakeSession(on, { floors: saved });
+
+    session.tokens = 35000;
+    await $.session.start(START_ARGS);
+    await $.session.end({ reason: 'clear', sessionId: 'session-1', resume: { id: 'session-1' } });
+    const statusesBefore = session.statuses.length;
+
+    session.tokens = 20000;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(session.statuses.slice(statusesBefore)).toEqual(['judge in 60k']);
+  });
+
+  test('the first turn after a compaction shows the full floor', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = 70000;
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.compacts).toHaveLength(1);
+
+    session.tokens = 30000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
   });
 
   test('saves the baseline when the first turn is taken', async ($, on) => {
