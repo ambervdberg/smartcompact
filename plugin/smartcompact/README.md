@@ -178,7 +178,8 @@ starts with this line, followed by one bullet per choice. A dashboard can split 
 Each decision is written as one JSON line to `~/.claude/smartcompact/log.jsonl` (`SMARTCOMPACT_LOG` picks another
 file). It stays on your machine and keeps only its newest 2 MB. The log keeps no text from the conversation and no
 text the judge wrote. A line holds the event, the time and details such as token counts, the length of the judge's
-reason (`reasonChars`) or an error message.
+reason (`reasonChars`) or an error message. The rows of a compaction carry `source`: `judge` or `request` (the
+session's tag). A `compact-started` row shows that the compact call began.
 
 ## What it reads, sends and writes
 

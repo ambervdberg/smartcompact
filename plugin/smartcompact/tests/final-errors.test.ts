@@ -34,7 +34,7 @@ describe('a compaction that cannot work', () => {
 
     const lines = stubLoggedLines(record);
 
-    expect(events(lines)).toEqual(['compact-failed', 'compact-dropped']);
+    expect(events(lines)).toEqual(['compact-started', 'compact-failed', 'compact-dropped']);
     expect(lines.at(-1)).toMatchObject({ reason: 'not available in this mode' });
     expect(record.timers).toBe(0);
     expect(record.statuses.at(-1)).toMatch(/^dropped /);
@@ -56,7 +56,7 @@ describe('a compaction that cannot work', () => {
     await new PendingCompaction(new TurnCounter(), new ContextFloor()).holdAndTry(engine, REQUEST);
     await settleStub();
 
-    expect(events(stubLoggedLines(record))).toEqual(['compact-failed', 'compact-dropped']);
+    expect(events(stubLoggedLines(record))).toEqual(['compact-started', 'compact-failed', 'compact-dropped']);
     expect(stubLoggedLines(record).at(-1)).toMatchObject({ reason: 'cancelled' });
     expect(record.timers).toBe(0);
     expect(sent).toEqual([]);
@@ -72,7 +72,7 @@ describe('a compaction that cannot work', () => {
     await new PendingCompaction(new TurnCounter(), new ContextFloor()).holdAndTry(engine, REQUEST);
     await settleStub();
 
-    expect(events(stubLoggedLines(record))).toEqual(['compact-failed', 'compact-waiting']);
+    expect(events(stubLoggedLines(record))).toEqual(['compact-started', 'compact-failed', 'compact-waiting']);
     expect(record.timers).toBe(1);
   });
 });

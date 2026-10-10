@@ -129,7 +129,12 @@ export class TurnJudging {
       return;
     }
 
-    const verdictDetails = verdictDetailsOf(tokens, answer.verdict, answer.model, latencyMs);
+    const verdictDetails = {
+      tokens,
+      added: this.#floor.addedTokens(tokens),
+      baseline: this.#floor.baseline(),
+      ...verdictDetailsOf(answer.verdict, answer.model, latencyMs),
+    };
 
     if (!answer.verdict.compact) {
       logEvent(engine, 'judge-no', verdictDetails);
@@ -186,9 +191,8 @@ export class TurnJudging {
 }
 
 // The reason sums up the work in the judge's words, so only its length is logged.
-function verdictDetailsOf(tokens: number, verdict: Verdict, model: string, latencyMs: number): Record<string, unknown> {
+function verdictDetailsOf(verdict: Verdict, model: string, latencyMs: number): Record<string, unknown> {
   return {
-    tokens,
     reasonChars: verdict.reason.length,
     model,
     latencyMs,

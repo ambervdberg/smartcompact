@@ -36,10 +36,10 @@ describe('a tag at the end of a main answer', () => {
     expect(session.claudeModels).toEqual([]);
     expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
     expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT]);
-    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-typed', 'continue-typed']);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-started', 'compact-typed', 'continue-typed']);
     expect(loggedLines(session)[0]).toMatchObject({ event: 'compact-requested', tokens: 0 });
     expect(loggedLines(session)[0]).not.toHaveProperty('next');
-    expect(loggedLines(session)[1]).toMatchObject({ source: 'request', tokens: 0 });
+    expect(loggedLines(session)[2]).toMatchObject({ source: 'request', tokens: 0 });
     expect(session.statuses.map(withoutTime)).toEqual(['will compact', 'compacting...', 'compacted', 'continued']);
   });
 
@@ -208,6 +208,7 @@ describe('a tag below the floor', () => {
       'compact-requested',
       'continue-typed',
       'compact-requested',
+      'compact-started',
       'compact-typed',
       'continue-typed',
     ]);
@@ -250,6 +251,7 @@ describe('a tag below the floor', () => {
     expect(session.submitted).toEqual([COMPACTED_DOCS_PROMPT, ['Ship it.', ...PROMPT_BODY].join('\n')]);
     expect(loggedEvents(session)).toEqual([
       'compact-requested',
+      'compact-started',
       'compact-typed',
       'continue-typed',
       'compact-requested',
@@ -288,7 +290,7 @@ describe('a held tag', () => {
 
     expect(session.compacts).toEqual([]);
     expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
-    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-failed', 'continue-typed']);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-started', 'compact-failed', 'continue-typed']);
   });
 
   test('is ignored by the loop guard right after a continue sent for a skipped compaction', NO_FLOOR, async ($, on) => {
@@ -306,6 +308,7 @@ describe('a held tag', () => {
     expect(session.submitted).toEqual([UNCOMPACTED_DOCS_PROMPT]);
     expect(loggedEvents(session)).toEqual([
       'compact-requested',
+      'compact-started',
       'compact-failed',
       'continue-typed',
       'compact-requested',
@@ -339,7 +342,7 @@ describe('a held tag', () => {
     await clock.settle();
 
     expect(session.submitted).toEqual([]);
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-failed']);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-started', 'compact-failed']);
   });
 
   test('sends nothing when a new turn drops it', NO_FLOOR, async ($, on) => {
@@ -387,7 +390,13 @@ describe('a held tag', () => {
     await clock.settle();
 
     expect(session.compacts).toEqual([DOCS_INSTRUCTIONS]);
-    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-waiting', 'compact-typed', 'request-error']);
+    expect(loggedEvents(session)).toEqual([
+      'compact-requested',
+      'compact-waiting',
+      'compact-started',
+      'compact-typed',
+      'request-error',
+    ]);
     expect(withoutTime(session.statuses.at(-1))).toBe('error');
   });
 
@@ -404,7 +413,7 @@ describe('a held tag', () => {
     await clearDraft($, 'half a thought');
     await clock.settle();
 
-    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-waiting', 'compact-typed', 'judge-error']);
+    expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-waiting', 'compact-started', 'compact-typed', 'judge-error']);
   });
 });
 

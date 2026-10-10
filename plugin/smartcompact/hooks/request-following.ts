@@ -56,14 +56,16 @@ export class RequestFollowing {
       return;
     }
 
-    logEvent(engine, 'compact-requested', { tokens });
     await this.#takeFirstTurn(engine, tokens);
+
+    const added = this.#floor.addedTokens(tokens);
+
+    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline() });
 
     if (await this.#hasRunningSubagents(engine)) {
       return;
     }
 
-    const added = this.#floor.addedTokens(tokens);
     const isBelowFloor = added < this.#settings.minTokens;
 
     if (this.#wouldLoop(turn, isBelowFloor)) {
@@ -130,7 +132,8 @@ export class RequestFollowing {
   async #continueBelowFloor(engine: Engine, turn: FinishedTurn, request: CompactRequest): Promise<void> {
     const sent = await submitContinuePrompt(engine, this.#turns, turn.turnsAtEnd, {
       next: request.next,
-      isAfterCompaction: false,
+      kind: 'below-floor',
+      source: 'request',
     });
 
     if (sent) {
