@@ -7,6 +7,7 @@ import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import type { PendingCompaction } from './pending-compaction.ts';
 import type { Settings } from './plugin-settings.ts';
 import { runningSubagentIds } from './running-subagents.ts';
@@ -40,6 +41,13 @@ export class RequestFollowing {
     try {
       await this.#follow(engine, turn, request);
     } catch (error) {
+      // A mode such as `claude -p` lacks calls the request needs. That is no fault.
+      if (isUnavailableInThisMode(error)) {
+        logEvent(engine, 'request-ignored', { reason: NOT_IN_THIS_MODE });
+
+        return;
+      }
+
       logEvent(engine, 'request-error', { message: messageOf(error) });
       await showTimedStatus(engine, 'error');
     }

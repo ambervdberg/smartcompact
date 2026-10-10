@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing';
 import { ContextFloor } from '../hooks/context-floor.ts';
 import { PendingCompaction } from '../hooks/pending-compaction.ts';
+import { RequestFollowing } from '../hooks/request-following.ts';
 import { TurnCounter } from '../hooks/turn-counter.ts';
 import { TurnJudging } from '../hooks/turn-judging.ts';
 import { COMPACTION_CANCELLED, notInThisMode, settleStub, stubEngine, stubLoggedLines } from './stub-engine.ts';
@@ -92,6 +93,28 @@ describe('a judge in a mode without the calls it needs', () => {
     await settleStub();
 
     expect(stubLoggedLines(record)).toMatchObject([{ event: 'judge-skipped', reason: 'not available in this mode' }]);
+    expect(record.statuses.filter((status) => status?.startsWith('error'))).toEqual([]);
+  });
+});
+
+describe('a tagged turn in a mode without the calls it needs', () => {
+  test('is ignored without a request-error', async () => {
+    const turns = new TurnCounter();
+    const floor = new ContextFloor();
+    const { engine, record } = stubEngine({
+      agents: async () => {
+        throw new Error(notInThisMode('$.agent.list'));
+      },
+    });
+    const following = new RequestFollowing(SETTINGS, turns, floor, new PendingCompaction(turns, floor));
+
+    await following.followRequest(engine, { answer: 'Done.', turnsAtEnd: 0 }, { next: 'Go on.' });
+    await settleStub();
+
+    const lines = stubLoggedLines(record);
+
+    expect(events(lines)).not.toContain('request-error');
+    expect(lines.at(-1)).toMatchObject({ event: 'request-ignored', reason: 'not available in this mode' });
     expect(record.statuses.filter((status) => status?.startsWith('error'))).toEqual([]);
   });
 });
