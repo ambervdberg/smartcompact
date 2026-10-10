@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
+import { ContextFloor } from '../hooks/context-floor.ts';
 import { SUMMARY, fakeSession, finishedTurn, loggedLines, runStep } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 10, 10, 0);
@@ -71,22 +72,15 @@ describe('the baseline of a first turn', () => {
     expect(savedBaseline(session)).toBe(40000);
   });
 
-  test('ignores steps while the floor does not wait', async ($, on) => {
-    const clock = mock.clock(on, { now: START });
-    mock.env(on, HOME);
-    const session = fakeSession(on);
+  test('ignores a reading while the floor does not wait', () => {
+    const touched = new ContextFloor();
+    const untouched = new ContextFloor();
 
-    session.tokens = 30000;
-    await runStep($, 1);
-    session.tokens = 50000;
-    await $.turn.complete(finishedTurn('turn-1'));
-    await clock.settle();
-    await $.session.compact({ trigger: 'manual', messages: [SUMMARY] });
-    session.tokens = 20000;
-    await $.turn.complete(finishedTurn('turn-2'));
-    await clock.settle();
+    touched.noteTurnStartReading(30000);
 
-    expect(savedBaseline(session)).toBe(20000);
+    expect(touched.state()).toEqual(untouched.state());
+    expect(touched.takeFirstTurn(50000)).toBe(untouched.takeFirstTurn(50000));
+    expect(touched.baseline()).toBe(untouched.baseline());
   });
 
   test('drops a reading taken before a /clear', async ($, on) => {
