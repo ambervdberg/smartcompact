@@ -6,12 +6,15 @@ import { messageOf } from './error-message.ts';
 import { submitContinuePrompt } from './continue-prompt-submit.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 
 // No engine event says that a dialog closed, so a busy session is retried on a clock: two minutes at most.
 const RETRY_MS = 3000;
 const MAX_RETRIES = 40;
+// How the engine's error for a compaction the person cancelled ends.
+const COMPACTION_CANCELLED = 'Compaction canceled.';
 
 type WaitReason = 'prompt has text' | 'dialog open' | 'session busy';
 
@@ -156,7 +159,7 @@ export class PendingCompaction {
         return;
       }
     } catch (error) {
-      await this.#holdAgainWhenStillIdle(engine, held, turnsAtCompact, error);
+      await this.#handleCompactError(engine, held, turnsAtCompact, error);
 
       return;
     }
@@ -183,15 +186,21 @@ export class PendingCompaction {
     }
   }
 
-  // The engine refuses a compaction while a turn runs. A turn that started is a drop, anything else is a wait.
-  async #holdAgainWhenStillIdle(
-    engine: Engine,
-    held: HeldRequest,
-    turnsAtCompact: number,
-    error: unknown,
-  ): Promise<void> {
+  // The engine refuses a compaction while a turn runs. A turn that started is a drop. A mode without compaction or a
+  // cancel by the person is a drop too, since a retry cannot work or would undo the cancel. Anything else is a wait.
+  async #handleCompactError(engine: Engine, held: HeldRequest, turnsAtCompact: number, error: unknown): Promise<void> {
     if (this.#turns.hasChangedSince(turnsAtCompact)) {
       logEvent(engine, 'compact-dropped', { reason: 'new turn started', waitedMs: await waitedMs(engine, held) });
+
+      return;
+    }
+
+    const finalReason = finalReasonOf(error);
+
+    if (finalReason !== undefined) {
+      logEvent(engine, 'compact-failed', { message: messageOf(error) });
+      logEvent(engine, 'compact-dropped', { reason: finalReason, waitedMs: await waitedMs(engine, held) });
+      await showTimedStatus(engine, 'dropped');
 
       return;
     }
@@ -235,6 +244,15 @@ export class PendingCompaction {
 
     return held;
   }
+}
+
+// The drop reason for an error no retry can fix, else undefined.
+function finalReasonOf(error: unknown): string | undefined {
+  if (isUnavailableInThisMode(error)) {
+    return NOT_IN_THIS_MODE;
+  }
+
+  return messageOf(error).endsWith(COMPACTION_CANCELLED) ? 'cancelled' : undefined;
 }
 
 async function waitedMs(engine: Engine, held: HeldRequest): Promise<number> {

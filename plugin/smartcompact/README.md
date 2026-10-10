@@ -69,7 +69,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `compacting...`, `compacted 14:03` | The compaction runs or has finished. |
 | `compact skipped 14:03` | Claude Code skipped the compaction, for example because a hook blocked it. |
 | `continued 14:03` | The continue prompt was sent. |
-| `dropped 14:03` | A new turn started or the session stayed busy, so the compaction was dropped. |
+| `dropped 14:03` | A new turn started, the session stayed busy, you cancelled the compaction or this mode cannot compact (`claude -p`), so the compaction was dropped. |
 | `error 14:02` | The judge or a session's request failed. The log says why. |
 
 ## When the session asks
