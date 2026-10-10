@@ -6,6 +6,7 @@ import {
   finishedTurn,
   loggedEvents,
   loggedLines,
+  runStep,
   taggedTurn,
   withoutTime,
 } from './fake-engine.ts';
@@ -414,6 +415,28 @@ describe('a held tag', () => {
     await clock.settle();
 
     expect(loggedEvents(session)).toEqual(['judge-yes', 'compact-waiting', 'compact-started', 'compact-typed', 'judge-error']);
+  });
+});
+
+describe('a tag on the first turn after a compaction', () => {
+  test('counts as below the floor, also when the turn grew a floor from its start', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = 70000;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+    await $.turn.start({ text: 'continue prompt', turnId: 'turn-2' });
+    await runStep($, 0);
+    session.tokens = 30000;
+    await runStep($, 1);
+    session.tokens = 100000;
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([JUDGE_INSTRUCTIONS]);
+    expect(session.submitted.at(-1)).toBe(UNCOMPACTED_DOCS_PROMPT);
   });
 });
 

@@ -56,8 +56,7 @@ export class RequestFollowing {
       return;
     }
 
-    await this.#takeFirstTurn(engine, tokens);
-
+    const isFirstTurn = await this.#takeFirstTurn(engine, tokens);
     const added = this.#floor.addedTokens(tokens);
 
     logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline() });
@@ -66,7 +65,8 @@ export class RequestFollowing {
       return;
     }
 
-    const isBelowFloor = added < this.#settings.minTokens;
+    // A first turn always counts as 0 added. Counted from its own start, one turn of work could pass the floor.
+    const isBelowFloor = (isFirstTurn ? 0 : added) < this.#settings.minTokens;
 
     if (this.#wouldLoop(turn, isBelowFloor)) {
       logEvent(engine, 'request-ignored', { reason: 'loop guard', tokens, added });
@@ -96,11 +96,15 @@ export class RequestFollowing {
     });
   }
 
-  // A tagged turn is never skipped, but it sets the baseline as an untagged first turn would.
-  async #takeFirstTurn(engine: Engine, tokens: number): Promise<void> {
-    if (this.#floor.takeFirstTurn(tokens) !== undefined) {
-      await saveFloorState(engine, this.#floor);
+  // A tagged turn is never skipped, but it sets the baseline as an untagged first turn would. True when it did.
+  async #takeFirstTurn(engine: Engine, tokens: number): Promise<boolean> {
+    if (this.#floor.takeFirstTurn(tokens) === undefined) {
+      return false;
     }
+
+    await saveFloorState(engine, this.#floor);
+
+    return true;
   }
 
   // On purpose: a finishing subagent wakes the session with a task notification, so it never hangs.
@@ -119,7 +123,7 @@ export class RequestFollowing {
 
   // Stops a session that tags again at once: prompt, tag, prompt. After a skipped compaction the next one is skipped
   // too, so that continue counts at any token count. A continue after a compaction does not count, because the
-  // first turn after a compaction always reads 0 added tokens.
+  // first turn after a compaction always counts as 0 added tokens.
   #wouldLoop(turn: FinishedTurn, isBelowFloor: boolean): boolean {
     if (isRightAfter(turn, this.#continuedAfterSkipAt)) {
       return true;
