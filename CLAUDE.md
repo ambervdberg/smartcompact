@@ -41,8 +41,8 @@ In `plugin/smartcompact`:
   `/exit` and `--resume` do not reload it. `claude respawn <id>` does.
 - The engine shows `$.ui.status` text as `⚠ smartcompact: <text>`. Do not add the plugin name.
 - The first turn after a compaction is never judged, else a low floor loops: compact, continue, compact. The first turn
-  of a new session is not judged either, because its startup context (about 80k) is not work done. The plugin README
-  (Token floor) has the full rules.
+  of a new session is not judged either, because its startup context (about 80k) is not work done. A resume without
+  saved floor state counts as a new session. The plugin README (Token floor) has the full rules.
 - A `/clear` fires `session.end` with reason `clear` and no `session.start`. `register.ts` resets the floor in
   `session.end`.
 - `$.session.usage().context.tokens` is undefined until the first response after a new session or a compaction. Read

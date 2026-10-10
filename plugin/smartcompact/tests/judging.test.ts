@@ -6,8 +6,9 @@ const HOME = { USERPROFILE: 'C:/home' };
 
 describe('token floor', () => {
   test('shows the countdown from the current context as soon as the session starts', async ($, on) => {
+    mock.clock(on, { now: START });
     mock.env(on, HOME);
-    const session = fakeSession(on);
+    const session = fakeSession(on, { floors: { 'session-1': { baseline: 0, waitingFor: null, savedAt: START } } });
 
     session.tokens = 25000;
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
@@ -18,7 +19,7 @@ describe('token floor', () => {
   test('a resumed session above the floor is judged after its next turn', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
-    const session = fakeSession(on);
+    const session = fakeSession(on, { floors: { 'session-1': { baseline: 0, waitingFor: null, savedAt: START } } });
 
     session.tokens = 188000;
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
@@ -342,15 +343,29 @@ describe('first turn of a session', () => {
     expect(session.statuses).toEqual(['judge in 40k']);
   });
 
-  test('a resumed session with messages and no saved state counts from 0', async ($, on) => {
-    mock.clock(on, { now: START });
+  test('a resumed session with messages and no saved state skips its first turn and counts from it', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
 
     session.tokens = 100000;
     await $.session.start(START_ARGS);
 
-    expect(session.statuses).toEqual(['judge after next turn']);
+    expect(session.statuses).toEqual(['judge in 60k']);
+
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(loggedLines(session)).toMatchObject([
+      { event: 'judge-skipped', reason: 'first turn of session', baseline: 100000 },
+    ]);
+
+    session.tokens = 130000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(session.statuses.at(-1)).toBe('judge in 30k');
   });
 
   test('a resume to another session without saved state drops the previous baseline', async ($, on) => {
@@ -369,7 +384,12 @@ describe('first turn of a session', () => {
     session.tokens = 100000;
     await $.session.start(START_ARGS);
 
-    expect(session.statuses.at(-1)).toBe('judge after next turn');
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
+
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(loggedLines(session).at(-1)).toMatchObject({ reason: 'first turn of session', baseline: 100000 });
   });
 
   test('a /clear ends the session without a start, so its next turn is skipped as a first turn', async ($, on) => {

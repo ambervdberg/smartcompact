@@ -4,7 +4,7 @@ import { loadFloorState } from './floor-store.ts';
 
 /**
  * Sets the floor for a starting session. Saved state for this session id wins, so a resume keeps its count.
- * Without it an empty conversation is a new session and anything else counts from 0.
+ * Without it the session counts as new, also a resume, because its startup context is not work done.
  */
 export async function startFloor(engine: Engine, floor: ContextFloor): Promise<void> {
   const saved = await loadFloorState(engine, await engine.sessionId());
@@ -15,12 +15,6 @@ export async function startFloor(engine: Engine, floor: ContextFloor): Promise<v
     return;
   }
 
-  if ((await engine.messages()).length === 0) {
-    floor.startNewSession();
-
-    return;
-  }
-
-  // A /resume to another session in the same process would else keep the previous session's floor.
-  floor.restore({ baseline: 0, waitingFor: null });
+  // Also replaces the floor of the previous session after a /resume to another session in the same process.
+  floor.startNewSession();
 }

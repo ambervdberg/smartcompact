@@ -188,6 +188,9 @@ describe('compact nudge', () => {
     session.tokens = 61000;
     await $.session.append(toolResult());
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
+    session.tokens = 30000;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
     session.tokens = 91000;
     await $.session.append(toolResult());
     await clock.settle();

@@ -45,8 +45,8 @@ The floor (`minTokens`, 60k by default) counts only the tokens added since a sta
 - Claude Code has no token count before the first answer after a new session or a compaction. A turn that ends
   without a count is not judged, sends no nudge, follows no tag and is not taken as the first turn. The log gets a
   `usage-missing` line.
-- A resumed or respawned session keeps its saved count. A session that started before the count was saved counts
-  from 0.
+- A resumed or respawned session keeps its saved count. A resumed session without a saved count starts over as a
+  new session: its first turn is not judged and sets the starting point.
 
 A line under the prompt box shows what it is doing, for example `smartcompact: judge in 48k`. It sits next to Claude
 Code's own notices. A custom `statusLine` script does not show it.

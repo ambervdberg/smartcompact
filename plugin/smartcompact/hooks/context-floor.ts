@@ -9,7 +9,7 @@ export type FloorState = {
 
 /**
  * Measures the tokens a conversation added since its first turn, or since the first turn after its last compaction.
- * A resumed session from before the floor was saved counts from 0, so it keeps what it already holds.
+ * A resumed session without saved state waits for its first turn, as a new session does.
  */
 export class ContextFloor {
   #baseline = 0;
