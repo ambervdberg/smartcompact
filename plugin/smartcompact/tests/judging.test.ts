@@ -196,16 +196,31 @@ describe('judge errors', () => {
     expect(session.compacts).toEqual([]);
   });
 
-  test('a reply that is no verdict is a judge error', { options: { minTokens: 0 } }, async ($, on) => {
+  test('a reply that is no verdict counts as no and shows no error', { options: { minTokens: 0 } }, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
-    session.claudeReply = () => ({ isAnswered: true, text: 'I think so', usage: noUsage() });
+    session.claudeReply = () => ({ isAnswered: true, text: 'I think so', usage: { ...noUsage(), output_tokens: 4 } });
 
     await $.turn.complete(finishedTurn());
     await clock.settle();
 
-    expect(loggedEvents(session)).toEqual(['judge-error']);
+    expect(loggedLines(session)).toMatchObject([{ event: 'judge-unreadable', replyChars: 10, outputTokens: 4 }]);
+    expect(loggedLines(session)[0]).not.toHaveProperty('reply');
+    expect(session.compacts).toEqual([]);
+    expect(session.statuses.at(-1)).toBe('judge after next turn');
+  });
+
+  test('a verdict without a boolean compact field counts as no', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.claudeReply = () => ({ isAnswered: true, text: '{"compact": "yes"}', usage: noUsage() });
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(loggedEvents(session)).toEqual(['judge-unreadable']);
     expect(session.compacts).toEqual([]);
   });
 

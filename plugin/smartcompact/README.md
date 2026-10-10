@@ -70,7 +70,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `compact skipped 14:03` | Claude Code skipped the compaction, for example because a hook blocked it. |
 | `continued 14:03` | The continue prompt was sent. |
 | `dropped 14:03` | A new turn started, the session stayed busy, you cancelled the compaction or this mode cannot compact (`claude -p`), so the compaction was dropped. |
-| `error 14:02` | The judge or a session's request failed. The log says why. |
+| `error 14:02` | The judge or a session's request failed. The log says why. A judge reply that is no verdict counts as no and keeps the countdown. The log has a `judge-unreadable` line. |
 
 ## When the session asks
 

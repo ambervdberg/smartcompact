@@ -8,6 +8,7 @@ import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
 import { buildJudgeInput } from './judge-input.ts';
+import type { Verdict } from './judge-verdict.ts';
 import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import type { PendingCompaction } from './pending-compaction.ts';
 import type { Settings } from './plugin-settings.ts';
@@ -120,7 +121,15 @@ export class TurnJudging {
     const startedAt = await engine.now();
     const input = buildJudgeInput(await engine.messages(), turn.answer);
     const answer = await askClaudeJudge(engine, this.#settings, input);
-    const verdictDetails = verdictDetailsOf(tokens, answer, await sinceMs(engine, startedAt));
+    const latencyMs = await sinceMs(engine, startedAt);
+
+    if (answer.verdict === undefined) {
+      this.#treatUnreadableAsNo(engine, tokens, answer, latencyMs);
+
+      return;
+    }
+
+    const verdictDetails = verdictDetailsOf(tokens, answer.verdict, answer.model, latencyMs);
 
     if (!answer.verdict.compact) {
       logEvent(engine, 'judge-no', verdictDetails);
@@ -146,6 +155,14 @@ export class TurnJudging {
     });
   }
 
+  // A reply in prose or cut at the token limit is the judge's slip, so the line keeps its countdown and shows no error.
+  #treatUnreadableAsNo(engine: Engine, tokens: number, answer: JudgeAnswer, latencyMs: number): void {
+    const { replyChars, outputTokens, model } = answer;
+
+    logEvent(engine, 'judge-unreadable', { tokens, replyChars, outputTokens, model, latencyMs });
+    showJudgeCountdown(engine, this.#settings.minTokens - this.#floor.addedTokens(tokens));
+  }
+
   /** The race guard: a turn that started or a subagent that runs since the turn ended cancels the yes. */
   async #isCancelled(engine: Engine, turn: FinishedTurn, tokens: number): Promise<boolean> {
     if (this.#turns.hasChangedSince(turn.turnsAtEnd)) {
@@ -169,11 +186,11 @@ export class TurnJudging {
 }
 
 // The reason sums up the work in the judge's words, so only its length is logged.
-function verdictDetailsOf(tokens: number, answer: JudgeAnswer, latencyMs: number): Record<string, unknown> {
+function verdictDetailsOf(tokens: number, verdict: Verdict, model: string, latencyMs: number): Record<string, unknown> {
   return {
     tokens,
-    reasonChars: answer.verdict.reason.length,
-    model: answer.model,
+    reasonChars: verdict.reason.length,
+    model,
     latencyMs,
   };
 }

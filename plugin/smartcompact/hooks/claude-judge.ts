@@ -10,11 +10,15 @@ const TIMEOUT_MS = 30000;
 const MAX_REPLY_TOKENS = 300;
 
 export type JudgeAnswer = {
-  verdict: Verdict;
+  /** Undefined when the reply is no verdict. */
+  verdict: Verdict | undefined;
   model: string;
+  replyChars: number;
+  /** Equal to the reply limit when the reply was cut. The engine gives no stop reason. */
+  outputTokens: number;
 };
 
-/** Asks the Claude model from the settings, on the session's own login. Throws on any failure. */
+/** Asks the Claude model from the settings, on the session's own login. Throws when the model gives no reply. */
 export async function askClaudeJudge(engine: Engine, settings: Settings, input: JudgeInput): Promise<JudgeAnswer> {
   const reply = await engine.complete({
     model: settings.claudeModel,
@@ -29,5 +33,10 @@ export async function askClaudeJudge(engine: Engine, settings: Settings, input: 
     throw new Error(`model gave no answer: ${reply.reason}`);
   }
 
-  return { verdict: verdictFrom(reply.text), model: settings.claudeModel };
+  return {
+    verdict: verdictFrom(reply.text),
+    model: settings.claudeModel,
+    replyChars: reply.text.length,
+    outputTokens: reply.usage.output_tokens,
+  };
 }
