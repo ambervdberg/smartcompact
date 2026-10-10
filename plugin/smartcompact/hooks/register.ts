@@ -117,13 +117,14 @@ export const register: Register = (on, options) => {
     return compacted;
   });
 
-  // A /clear fires no session.start, so the floor starts over here.
+  // A /clear fires no session.start, so the floor and its countdown start over here.
   on('session.end', async ($, e, next) => {
     await compaction.drop(engineOf($), `session ${e.reason}`);
 
     if (e.reason === 'clear') {
       floor.startNewSession();
       nudge.startCountOver();
+      showJudgeCountdown(engineOf($), settings.minTokens);
     }
 
     return next(e);

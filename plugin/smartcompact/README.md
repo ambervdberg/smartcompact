@@ -50,7 +50,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 
 | Status | Meaning |
 | --- | --- |
-| `judge in 48k` | Below the token floor. The judge is asked once the conversation has grown 48k more tokens. A new session shows the full floor until its first turn ends. |
+| `judge in 48k` | Below the token floor. The judge is asked once the conversation has grown 48k more tokens. A new session and a `/clear` show the full floor. So does the first turn after them or after a compaction, because that turn sets the starting point. |
 | `judge after next turn` | The floor is reached. The judge is asked when the next turn ends. |
 | `waiting for subagents` | Subagents still run, so the judge was not asked. |
 | `nudged 14:02` | The session was asked to compact at the next good moment. |

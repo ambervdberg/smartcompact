@@ -330,6 +330,58 @@ describe('first turn of a session', () => {
     expect(loggedLines(session)).toMatchObject([{ event: 'judge-skipped', reason: 'first turn of session' }]);
   });
 
+  test('a /clear shows the full floor at once', async ($, on) => {
+    mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const saved = { 'session-1': { baseline: 10000, waitingFor: null, savedAt: START } };
+    const session = fakeSession(on, { floors: saved });
+
+    session.tokens = 35000;
+    await $.session.start(START_ARGS);
+
+    expect(session.statuses).toEqual(['judge in 35k']);
+
+    await $.session.end({ reason: 'clear', sessionId: 'session-1', resume: { id: 'session-1' } });
+
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
+  });
+
+  test('the first turn after a /clear shows the full floor', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const saved = { 'session-1': { baseline: 10000, waitingFor: null, savedAt: START } };
+    const session = fakeSession(on, { floors: saved });
+
+    session.tokens = 35000;
+    await $.session.start(START_ARGS);
+    await $.session.end({ reason: 'clear', sessionId: 'session-1', resume: { id: 'session-1' } });
+    const statusesBefore = session.statuses.length;
+
+    session.tokens = 20000;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(session.statuses.slice(statusesBefore)).toEqual(['judge in 60k']);
+  });
+
+  test('the first turn after a compaction shows the full floor', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = 70000;
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.compacts).toHaveLength(1);
+
+    session.tokens = 30000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(session.statuses.at(-1)).toBe('judge in 60k');
+  });
+
   test('saves the baseline when the first turn is taken', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
