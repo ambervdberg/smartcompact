@@ -408,6 +408,26 @@ describe('a held tag', () => {
   });
 });
 
+describe('a tag without a token count', () => {
+  test('is ignored and leaves the floor waiting', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.messages = [];
+    session.tokens = undefined;
+
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.submitted).toEqual([]);
+    expect(loggedLines(session)).toMatchObject([{ event: 'usage-missing', hook: 'turn.complete' }]);
+    expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
+    expect(session.store.get('floors')).toBeUndefined();
+  });
+});
+
 describe('a failure in the tag path', () => {
   test('is logged as request-error', async ($, on) => {
     const clock = mock.clock(on, { now: START });

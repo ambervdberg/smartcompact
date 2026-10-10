@@ -92,6 +92,19 @@ describe('compact nudge', () => {
     expect(session.notes).toEqual([]);
   });
 
+  test('sends no nudge without a token count', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = undefined;
+    await $.session.append(toolResult());
+    await clock.settle();
+
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session)).toMatchObject([{ event: 'usage-missing', hook: 'session.append' }]);
+  });
+
   test('sends no nudge while the floor waits for its first turn', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);

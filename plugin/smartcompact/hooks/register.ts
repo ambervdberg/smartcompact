@@ -3,6 +3,7 @@ import { readCompactRequest } from './compact-request.ts';
 import { CompactNudge } from './compact-nudge.ts';
 import { withCompactRule } from './compact-rule.ts';
 import { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
@@ -33,9 +34,11 @@ export const register: Register = (on, options) => {
     await startFloor(engine, floor);
     nudge.startCountOver();
 
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+    // A new session has no count before its first response, and nothing is added yet.
+    const added = tokens === undefined ? 0 : floor.addedTokens(tokens);
 
-    showJudgeCountdown(engine, settings.minTokens - floor.addedTokens(tokens));
+    showJudgeCountdown(engine, settings.minTokens - added);
     await registerPromptCommand(engine);
 
     return next(e);
@@ -101,9 +104,8 @@ export const register: Register = (on, options) => {
   on('session.compact', async ($, e, next) => {
     if (e.agentId === undefined && (e.trigger === 'manual' || e.trigger === 'auto')) {
       const engine = engineOf($);
-      const tokens = (await engine.usage()).context.tokens ?? 0;
-
-      logEvent(engine, 'compact-other', { trigger: e.trigger, tokens });
+      // A missing count leaves the tokens field out of the row.
+      logEvent(engine, 'compact-other', { trigger: e.trigger, tokens: await contextTokens(engine) });
       await compaction.drop(engine, `${e.trigger} compact`);
     }
 

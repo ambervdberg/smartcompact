@@ -45,6 +45,8 @@ In `plugin/smartcompact`:
   (Token floor) has the full rules.
 - A `/clear` fires `session.end` with reason `clear` and no `session.start`. `register.ts` resets the floor in
   `session.end`.
+- `$.session.usage().context.tokens` is undefined until the first response after a new session or a compaction. Read
+  it with `contextTokens()` (`context-tokens.ts`) and skip the work on undefined. Read as 0 it sets a baseline of 0.
 - API gaps: `$.fs` has no append (the log is read and rewritten). No idle or dialog-closed event. `$.prompt.read()`
   gives an empty draft under a dialog, a refused empty `$.prompt.fill` tells a dialog apart.
 - A command from `$.command.register` runs by its bare name. The engine adds no plugin prefix, so the name itself

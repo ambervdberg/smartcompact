@@ -209,6 +209,64 @@ describe('judge errors', () => {
   });
 });
 
+describe('a missing token count', () => {
+  const START_ARGS = { cwd: 'C:/work', surface: 'terminal', isInteractive: true } as const;
+
+  test('leaves the floor waiting and judges nothing', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.messages = [];
+    session.tokens = undefined;
+    await $.session.start(START_ARGS);
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.compacts).toEqual([]);
+    expect(session.statuses).toEqual(['judge in 60k']);
+    expect(loggedLines(session)).toMatchObject([{ event: 'usage-missing', hook: 'turn.complete' }]);
+    expect(session.store.get('floors')).toBeUndefined();
+  });
+
+  test('the next turn with a count is the first turn', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.messages = [];
+    session.tokens = undefined;
+    await $.session.start(START_ARGS);
+    await $.turn.complete(finishedTurn('turn-1'));
+    await clock.settle();
+
+    session.tokens = 80000;
+    await $.turn.complete(finishedTurn('turn-2'));
+    await clock.settle();
+
+    expect(loggedLines(session).at(-1)).toMatchObject({
+      event: 'judge-skipped',
+      reason: 'first turn of session',
+      tokens: 80000,
+    });
+  });
+
+  test('judges nothing with a floor of 0', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+
+    session.tokens = undefined;
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.compacts).toEqual([]);
+    expect(loggedEvents(session)).toEqual(['usage-missing']);
+  });
+});
+
 function noUsage() {
   return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 }

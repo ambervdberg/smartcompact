@@ -40,6 +40,9 @@ The floor (`minTokens`, 60k by default) counts only the tokens added since a sta
   compaction.
 - That first turn itself is never judged.
 - So a new session does not count its startup context, and a compaction cannot follow right after another one.
+- Claude Code has no token count before the first answer after a new session or a compaction. A turn that ends
+  without a count is not judged, sends no nudge, follows no tag and is not taken as the first turn. The log gets a
+  `usage-missing` line.
 - A resumed or respawned session keeps its saved count. A session that started before the count was saved counts
   from 0.
 

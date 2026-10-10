@@ -1,6 +1,7 @@
 import { instructionsForRequest } from './compact-instructions.ts';
 import type { CompactRequest } from './compact-request.ts';
 import type { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import { submitContinuePrompt } from './continue-prompt-submit.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
@@ -48,7 +49,15 @@ export class RequestFollowing {
   }
 
   async #follow(engine: Engine, turn: FinishedTurn, request: CompactRequest): Promise<void> {
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+
+    // Without a size the floor rules cannot pick between a compaction and a continue, so nothing runs.
+    if (tokens === undefined) {
+      logEvent(engine, 'usage-missing', { hook: 'turn.complete' });
+      await showTimedStatus(engine, 'request ignored');
+
+      return;
+    }
 
     logEvent(engine, 'compact-requested', { tokens });
     await this.#takeFirstTurn(engine, tokens);

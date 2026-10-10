@@ -33,7 +33,8 @@ const NO_USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_token
 export type FakeSession = {
   /** Change it to stand in for a /resume to another session in the same process. */
   id: string;
-  tokens: number;
+  /** Undefined stands in for the time before the first response, when the engine has no count yet. */
+  tokens: number | undefined;
   draft: string;
   isDialogOpen: boolean;
   agents: AgentInfo[];
@@ -172,7 +173,11 @@ function answerSessionCalls(on: On, session: FakeSession): void {
   on('session.id', () => ({ value: session.id }));
   on('session.cwd', () => ({ value: 'C:/work' }));
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { tokens: session.tokens, window: 200000 }, rateLimits: [] },
+    value: {
+      startedAt: 0,
+      context: { ...(session.tokens === undefined ? {} : { tokens: session.tokens }), window: 200000 },
+      rateLimits: [],
+    },
   }));
   on('session.messages', () => ({ value: session.messages }));
   on('agent.list', () => ({ value: session.agents }));

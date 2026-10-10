@@ -3,6 +3,7 @@ import { askClaudeJudge } from './claude-judge.ts';
 import type { JudgeAnswer } from './claude-judge.ts';
 import { JUDGE_INSTRUCTIONS } from './compact-instructions.ts';
 import type { ContextFloor } from './context-floor.ts';
+import { contextTokens } from './context-tokens.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import { saveFloorState } from './floor-store.ts';
@@ -48,7 +49,14 @@ export class TurnJudging {
   }
 
   async #judgeWhenWorthIt(engine: Engine, turn: FinishedTurn): Promise<void> {
-    const tokens = (await engine.usage()).context.tokens ?? 0;
+    const tokens = await contextTokens(engine);
+
+    // A /clear or exit right after the turn can land before the count. The floor keeps waiting.
+    if (tokens === undefined) {
+      logEvent(engine, 'usage-missing', { hook: 'turn.complete' });
+
+      return;
+    }
 
     // Without the skip after a compaction a floor of 0 loops: compact, continue prompt, judged done, compact again.
     const firstTurnReason = this.#floor.takeFirstTurn(tokens);
