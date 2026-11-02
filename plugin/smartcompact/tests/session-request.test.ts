@@ -9,10 +9,11 @@ import {
   runStep,
   taggedTurn,
   withoutTime,
+  FAKE_HOME,
 } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 4, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 const NO_FLOOR = { options: { minTokens: 0 } };
 const JUDGE_INSTRUCTIONS = 'Keep the current goal, the next step and open decisions.';
 const DOCS_INSTRUCTIONS = 'Keep the current goal, open decisions and what this next step needs: Write the docs.';

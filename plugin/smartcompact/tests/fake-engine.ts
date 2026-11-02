@@ -10,12 +10,18 @@ import type {
 import type { Engine as TestEngine } from 'claude-code/testing';
 
 // The engine hands fs hooks the path in the platform's own spelling, so the fake keys its files with forward slashes.
-const LOG_FILE = 'C:/home/.claude/smartcompact/log.jsonl';
+// An absolute POSIX path works on both hosts: Linux keeps it, Windows adds a drive that `slashed` strips again.
+// A `C:/home` style path fails on Linux, because the engine resolves it under the cwd and the fake misses it.
+/** The fake home folder. */
+export const FAKE_HOME = '/home/test';
+/** A fake CLAUDE_CONFIG_DIR. */
+export const FAKE_CONFIG_DIR = '/config';
+const LOG_FILE = `${FAKE_HOME}/.claude/smartcompact/log.jsonl`;
 // The fake cannot read the disk, so it serves the shipped prompt for the plugin folder under test itself.
 const SHIPPED_PROMPT_TAIL = '/plugin/smartcompact/continue-prompt.md';
 
 /** The user's own continue prompt under the fake home folder. */
-export const OVERRIDE_PROMPT_FILE = 'C:/home/.claude/smartcompact/continue-prompt.md';
+export const OVERRIDE_PROMPT_FILE = `${FAKE_HOME}/.claude/smartcompact/continue-prompt.md`;
 
 /** A copy of `continue-prompt.md`. Keep the two the same. */
 export const SHIPPED_CONTINUE_PROMPT = [
@@ -137,7 +143,7 @@ export function taggedTurn(next: string, turnId = 'turn-1') {
 
 /** Seeds the files Claude Code writes for a subagent. Returns the transcript path. */
 export function seedSubagent(session: FakeSession, id: string, finished: boolean, mtimeMs: number): string {
-  const base = `C:/home/.claude/projects/C--work/${session.id}/subagents/agent-${id}`;
+  const base = `${FAKE_HOME}/.claude/projects/C--work/${session.id}/subagents/agent-${id}`;
 
   session.files.set(`${base}.meta.json`, JSON.stringify({ finished }));
   session.files.set(`${base}.jsonl`, '');
@@ -368,7 +374,7 @@ function hasPath(session: FakeSession, path: string): boolean {
 }
 
 function slashed(path: string): string {
-  return path.replaceAll('\\', '/');
+  return path.replaceAll('\\', '/').replace(/^[A-Za-z]:/, '');
 }
 
 function isShippedPrompt(path: string): boolean {

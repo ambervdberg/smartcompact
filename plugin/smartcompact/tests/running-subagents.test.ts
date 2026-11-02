@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { fakeSession, finishedTurn, loggedLines, seedSubagent, taggedTurn } from './fake-engine.ts';
+import { fakeSession, finishedTurn, loggedLines, seedSubagent, taggedTurn, FAKE_CONFIG_DIR, FAKE_HOME } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 4, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 const NO_FLOOR = { options: { minTokens: 0 } };
 const BUSY_AGENT = { id: 'worker', description: 'review', type: 'general-purpose', status: 'running' as const };
 
@@ -50,13 +50,13 @@ describe('subagent files override a busy engine status', () => {
 
   test('honours CLAUDE_CONFIG_DIR and scans project folders', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
-    mock.env(on, { ...HOME, CLAUDE_CONFIG_DIR: 'D:/config' });
+    mock.env(on, { ...HOME, CLAUDE_CONFIG_DIR: FAKE_CONFIG_DIR });
     const session = fakeSession(on);
     session.id = 'custom-config-session';
     session.agents = [BUSY_AGENT];
     seedSubagent(session, 'worker', false, START);
-    session.files.set('D:/config/projects/unrelated/file', '');
-    session.files.set('D:/config/projects/any-project/custom-config-session/subagents/agent-worker.meta.json', '{"finished":true}');
+    session.files.set(`${FAKE_CONFIG_DIR}/projects/unrelated/file`, '');
+    session.files.set(`${FAKE_CONFIG_DIR}/projects/any-project/custom-config-session/subagents/agent-worker.meta.json`, '{"finished":true}');
 
     await $.turn.complete(taggedTurn('Write the docs.'));
     await clock.settle();
@@ -66,7 +66,7 @@ describe('subagent files override a busy engine status', () => {
 
   test('uses HOME when USERPROFILE is absent', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
-    mock.env(on, { HOME: 'C:/home' });
+    mock.env(on, { HOME: FAKE_HOME });
     const session = fakeSession(on);
     session.id = 'home-session';
     session.agents = [BUSY_AGENT];
@@ -76,7 +76,7 @@ describe('subagent files override a busy engine status', () => {
     await clock.settle();
 
     expect(session.compacts).toHaveLength(1);
-    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
+    expect(session.listCalls).toEqual([`${FAKE_HOME}/.claude/projects`]);
   });
 
   for (const problem of ['broken meta', 'unreadable meta', 'missing meta', 'missing transcript'] as const) {
@@ -143,7 +143,7 @@ describe('subagent files override a busy engine status', () => {
     const session = fakeSession(on);
     session.id = 'cached-miss-session';
     session.agents = [BUSY_AGENT];
-    session.files.set('C:/home/.claude/projects/unrelated/file', '');
+    session.files.set(`${FAKE_HOME}/.claude/projects/unrelated/file`, '');
 
     await $.turn.complete(taggedTurn('Write the docs.'));
     await clock.settle();
@@ -152,7 +152,7 @@ describe('subagent files override a busy engine status', () => {
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
     await clock.settle();
 
-    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
+    expect(session.listCalls).toEqual([`${FAKE_HOME}/.claude/projects`]);
     expect(session.compacts).toEqual([]);
 
     await clock.advance(1);
@@ -175,7 +175,7 @@ describe('subagent files override a busy engine status', () => {
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
     await clock.settle();
 
-    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
+    expect(session.listCalls).toEqual([`${FAKE_HOME}/.claude/projects`]);
     expect(session.compacts).toEqual([]);
     expect(loggedLines(session)).toContainEqual(expect.objectContaining({
       event: 'request-ignored', reason: 'subagents running', agents: ['worker'],
@@ -212,13 +212,13 @@ describe('subagent files override a busy engine status', () => {
     await clock.settle();
     session.files.delete(meta);
     session.files.delete(transcript);
-    session.files.set(`C:/home/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
+    session.files.set(`${FAKE_HOME}/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
     await clock.settle();
     expect(session.compacts).toEqual([]);
 
     session.id = 'cached-hit-next-session';
-    session.files.set(`C:/home/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
+    session.files.set(`${FAKE_HOME}/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-3'));
     await clock.settle();
 

@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { claudeVerdict, fakeSession, finishedTurn, loggedEvents, loggedLines, seedSubagent } from './fake-engine.ts';
+import { claudeVerdict, fakeSession, finishedTurn, loggedEvents, loggedLines, seedSubagent, FAKE_HOME } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 4, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 
 describe('token floor', () => {
   test('shows the countdown from the current context as soon as the session starts', async ($, on) => {

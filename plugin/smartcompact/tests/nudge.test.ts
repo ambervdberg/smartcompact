@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
 import { CompactNudge } from '../hooks/compact-nudge.ts';
 import { ContextFloor } from '../hooks/context-floor.ts';
-import { SUMMARY, fakeSession, finishedTurn, loggedLines, toolResult, withoutTime } from './fake-engine.ts';
+import { SUMMARY, fakeSession, finishedTurn, loggedLines, toolResult, withoutTime, FAKE_HOME } from './fake-engine.ts';
 import { notInThisMode, settleStub, stubEngine, stubLoggedLines } from './stub-engine.ts';
 
 const START = Date.UTC(2026, 9, 8, 22, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 
 function nudge(added: string): string {
   return `smartcompact: this conversation grew ${added} tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents and let the running ones finish. Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.`;

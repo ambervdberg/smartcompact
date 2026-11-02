@@ -239,5 +239,10 @@ npx -p typescript tsc -p .
 ```
 
 Claude Code writes the API types to `.claude-plugin/types/` when it loads the plugin from a folder. `tsc` needs them
-there. The tests cannot read the disk, so `tests/fake-engine.ts` holds a copy of `continue-prompt.md`. Keep the two
+there. The folder is gitignored, so a fresh worktree has none. Make it with a short session, then stop it:
+`tmux new-session -d -s types "claude --plugin-dir $PWD"`, wait 20 seconds, check that `.claude-plugin/types` exists,
+then `tmux kill-session -t types`. Run it in the worktree's `plugin/smartcompact` folder.
+
+The tests use `/home/test` as the fake home (`FAKE_HOME` in `tests/fake-engine.ts`). Keep fake paths absolute POSIX
+paths. A `C:/home` style path fails on Linux, because the engine resolves it under the cwd. The tests cannot read the disk, so `tests/fake-engine.ts` holds a copy of `continue-prompt.md`. Keep the two
 the same.

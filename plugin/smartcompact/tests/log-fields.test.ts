@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { claudeVerdict, fakeSession, finishedTurn, loggedLines, taggedTurn } from './fake-engine.ts';
+import { claudeVerdict, fakeSession, finishedTurn, loggedLines, taggedTurn, FAKE_HOME } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 10, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 const START_ARGS = { cwd: 'C:/work', surface: 'terminal', isInteractive: true } as const;
 const NO_FLOOR = { options: { minTokens: 0 } };
 
