@@ -32,7 +32,7 @@ export const register: Register = (on, options) => {
     const engine = engineOf($);
 
     await startFloor(engine, floor);
-    nudge.startCountOver();
+    nudge.startNewSession();
 
     const tokens = await contextTokens(engine);
     // A new session has no count before its first response, and nothing is added yet.

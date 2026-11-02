@@ -1,5 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
+import { CompactNudge } from '../hooks/compact-nudge.ts';
+import { ContextFloor } from '../hooks/context-floor.ts';
 import { SUMMARY, fakeSession, finishedTurn, loggedLines, toolResult, withoutTime } from './fake-engine.ts';
+import { notInThisMode, settleStub, stubEngine, stubLoggedLines } from './stub-engine.ts';
 
 const START = Date.UTC(2026, 9, 8, 22, 0);
 const HOME = { USERPROFILE: 'C:/home' };
@@ -13,6 +16,59 @@ function nudgeLines(session: ReturnType<typeof fakeSession>) {
 }
 
 describe('compact nudge', () => {
+  test('skips an unavailable agent lookup until a new session', async () => {
+    let agentChecks = 0;
+    const { engine, record } = stubEngine({
+      agents: async () => {
+        agentChecks += 1;
+        throw new Error(notInThisMode('$.agent.list'));
+      },
+    });
+    const floor = new ContextFloor();
+    const nudge = new CompactNudge({ minTokens: 60000, claudeModel: 'haiku' }, floor);
+
+    for (let result = 0; result < 3; result++) {
+      await nudge.nudgeIfDue(engine);
+    }
+    floor.restartAfterCompaction();
+    floor.takeFirstTurn(1000);
+    nudge.startCountOver();
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(agentChecks).toBe(1);
+    expect(stubLoggedLines(record)).toMatchObject([
+      { event: 'nudge-skipped', reason: 'not available in this mode' },
+    ]);
+    expect(stubLoggedLines(record).filter((line) => line['event'] === 'nudge-error')).toEqual([]);
+    expect(record.statuses).toEqual([]);
+
+    nudge.startNewSession();
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(agentChecks).toBe(2);
+    expect(stubLoggedLines(record)).toHaveLength(2);
+  });
+
+  test('still logs other agent lookup errors', async () => {
+    const { engine, record } = stubEngine({
+      agents: async () => {
+        throw new Error('agent lookup failed');
+      },
+    });
+    const nudge = new CompactNudge({ minTokens: 60000, claudeModel: 'haiku' }, new ContextFloor());
+
+    await nudge.nudgeIfDue(engine);
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(stubLoggedLines(record)).toMatchObject([
+      { event: 'nudge-error', message: 'agent lookup failed' },
+      { event: 'nudge-error', message: 'agent lookup failed' },
+    ]);
+  });
+
   test('sends no nudge below the floor', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);

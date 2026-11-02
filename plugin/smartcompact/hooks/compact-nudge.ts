@@ -3,6 +3,7 @@ import { contextTokens } from './context-tokens.ts';
 import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
+import { NOT_IN_THIS_MODE, isUnavailableInThisMode } from './mode-unavailable.ts';
 import type { Settings } from './plugin-settings.ts';
 import { runningSubagentIds } from './running-subagents.ts';
 import { showTimedStatus } from './status-line.ts';
@@ -42,16 +43,17 @@ export class CompactNudge {
   #nudges = 0;
   #isChecking = false;
   #isHeld = false;
+  #isUnavailable = false;
 
   constructor(settings: Settings, floor: ContextFloor) {
     this.#settings = settings;
     this.#floor = floor;
   }
 
-  /** Runs after a main tool result is stored. It never throws: a failure is logged as `nudge-error`. */
+  /** Runs after a main tool result is stored. Unavailable modes skip, other failures log `nudge-error`. */
   async nudgeIfDue(engine: Engine): Promise<void> {
     // Parallel tool calls store several results at once. One check is enough for all of them.
-    if (this.#isChecking) {
+    if (this.#isChecking || this.#isUnavailable) {
       return;
     }
 
@@ -60,6 +62,13 @@ export class CompactNudge {
     try {
       await this.#nudgeIfDue(engine);
     } catch (error) {
+      if (isUnavailableInThisMode(error)) {
+        this.#isUnavailable = true;
+        logEvent(engine, 'nudge-skipped', { reason: NOT_IN_THIS_MODE });
+
+        return;
+      }
+
       logEvent(engine, 'nudge-error', { message: messageOf(error) });
     } finally {
       this.#isChecking = false;
@@ -128,6 +137,12 @@ export class CompactNudge {
 
   #step(): number {
     return Math.max(Math.floor(this.#settings.minTokens / 2), MIN_STEP_TOKENS);
+  }
+
+  // Compaction cannot restore calls that the session's mode does not offer.
+  startNewSession(): void {
+    this.#isUnavailable = false;
+    this.startCountOver();
   }
 
   /** Forgets the last nudge, so the next one is number 1. */

@@ -131,6 +131,8 @@ refused note is logged as `nudge-error`.
 
 While subagents run, a due nudge waits and the log gets `nudge-skipped` with their ids once per hold. The next main tool result after they finish can send the nudge, with no extra token wait.
 
+When a mode such as `claude -p` lacks a call the nudge needs, the nudge skips without an error status. The log gets one `nudge-skipped` with reason `not available in this mode`. Later tool results do not retry until a new session starts. Compaction and `/clear` do not enable the nudge again.
+
 ## Options
 
 Set them with `/plugin configure smartcompact@smartcompact` in a session, or in `settings.json`:
