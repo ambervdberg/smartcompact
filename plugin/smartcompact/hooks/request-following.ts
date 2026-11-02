@@ -1,4 +1,5 @@
 import { instructionsForRequest } from './compact-instructions.ts';
+import { NUDGE_TEXT_START } from './compact-nudge.ts';
 import type { CompactRequest } from './compact-request.ts';
 import type { ContextFloor } from './context-floor.ts';
 import { contextTokens } from './context-tokens.ts';
@@ -15,9 +16,20 @@ import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 import type { FinishedTurn } from './turn-judging.ts';
 
+// A plain includes() lets agent-10 pass for agent-1, so the summary could drop the pending report of agent-1.
+function namesAgentId(text: string, id: string): boolean {
+  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_-])${escapedId}(?![A-Za-z0-9_-])`).test(text);
+}
+
+/** Tells the model why its tag was ignored, in a row the judge input skips. */
+export function subagentsRunningText(agents: string[]): string {
+  return `${NUDGE_TEXT_START}compaction skipped, ${agents.length} subagent(s) still running (${agents.join(', ')}). To compact now, tag again and name each running agent id with what to do with its report. Or tag again once they finish.`;
+}
+
 /**
- * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
- * or when it would loop, continues without a compaction below the floor, and else hands it to the pending compaction.
+ * After a main turn that ended with the compact tag, without the judge: ignores the request if it omits a running agent id
+ * or would loop, continues without a compaction below the floor, and else hands it to the pending compaction.
  */
 export class RequestFollowing {
   #settings: Settings;
@@ -67,9 +79,11 @@ export class RequestFollowing {
     const isFirstTurn = await this.#takeFirstTurn(engine, tokens);
     const added = this.#floor.addedTokens(tokens);
 
-    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline() });
+    const agents = await runningSubagentIds(engine);
 
-    if (await this.#hasRunningSubagents(engine)) {
+    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline(), ...(agents.length > 0 ? { agents } : {}) });
+
+    if (await this.#ignoresMissingAgentIds(engine, request.next, agents)) {
       return;
     }
 
@@ -94,7 +108,7 @@ export class RequestFollowing {
       source: 'request',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
-      instructions: instructionsForRequest(request.next),
+      instructions: instructionsForRequest(request.next, agents),
       next: request.next,
       continueWhenSkipped: true,
       errorEvent: 'request-error',
@@ -115,16 +129,21 @@ export class RequestFollowing {
     return true;
   }
 
-  // On purpose: a finishing subagent wakes the session with a task notification, so it never hangs.
-  async #hasRunningSubagents(engine: Engine): Promise<boolean> {
-    const agents = await runningSubagentIds(engine);
+  // A tag must name each running agent so the summary can keep its pending report.
+  async #ignoresMissingAgentIds(engine: Engine, next: string, agents: string[]): Promise<boolean> {
+    const missing = agents.filter((id) => !namesAgentId(next, id));
 
-    if (agents.length === 0) {
+    if (missing.length === 0) {
       return false;
     }
 
-    logEvent(engine, 'request-ignored', { reason: 'subagents running', agents });
+    logEvent(engine, 'request-ignored', { reason: 'subagents running', agents, missing });
     await showTimedStatus(engine, 'request ignored');
+    const appended = await engine.appendNote(subagentsRunningText(agents));
+
+    if (appended.deny !== undefined) {
+      logEvent(engine, 'request-error', { message: appended.deny });
+    }
 
     return true;
   }

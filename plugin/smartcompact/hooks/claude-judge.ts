@@ -14,6 +14,7 @@ export type JudgeAnswer = {
   verdict: Verdict | undefined;
   model: string;
   replyChars: number;
+  startsWithBrace: boolean;
   /** Equal to the reply limit when the reply was cut. The engine gives no stop reason. */
   outputTokens: number;
 };
@@ -37,6 +38,7 @@ export async function askClaudeJudge(engine: Engine, settings: Settings, input: 
     verdict: verdictFrom(reply.text),
     model: settings.claudeModel,
     replyChars: reply.text.length,
+    startsWithBrace: reply.text.trim().startsWith('{'),
     outputTokens: reply.usage.output_tokens,
   };
 }

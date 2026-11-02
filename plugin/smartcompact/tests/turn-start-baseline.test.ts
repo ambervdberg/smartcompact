@@ -1,9 +1,9 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
 import { ContextFloor } from '../hooks/context-floor.ts';
-import { SUMMARY, fakeSession, finishedTurn, loggedLines, runStep } from './fake-engine.ts';
+import { SUMMARY, fakeSession, finishedTurn, loggedLines, runStep, FAKE_HOME } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 10, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 const START_ARGS = { cwd: 'C:/work', surface: 'terminal', isInteractive: true } as const;
 
 function savedBaseline(session: ReturnType<typeof fakeSession>): unknown {

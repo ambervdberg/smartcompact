@@ -1,0 +1,34 @@
+{
+  "name": "smartcompact",
+  "prefix": "smartcompact",
+  "roles": [
+    "team-lead",
+    "developer",
+    "po",
+    "retro"
+  ],
+  "triggers": [
+    "start-lead"
+  ],
+  "github": {
+    "on": true,
+    "repo": "ambervdberg/smartcompact"
+  },
+  "sessions": {
+    "lead": "smartcompact lead",
+    "po": "PO chat [smartcompact]",
+    "poRun": "smartcompact inbox",
+    "retro": "smartcompact lessons",
+    "developer": "smartcompact dev",
+    "developerNames": [
+      "Mimir",
+      "Tyr",
+      "Baldr",
+      "Vidar",
+      "Sif",
+      "Frigg",
+      "Saga",
+      "Freya"
+    ]
+  }
+}
