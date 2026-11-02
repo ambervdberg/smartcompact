@@ -12,14 +12,9 @@ smartcompact compacts earlier, between two pieces of work, in two ways:
   can start right away, it ends its answer with `<smartcompact>the prompt for the next piece</smartcompact>` and
   stops. The plugin compacts and sends that prompt. Once the conversation has grown enough, the plugin reminds Claude
   of this rule during the turn, so a busy session also picks a moment.
-- **A judge decides.** After a turn that ends without the tag, a small judge model reads the end of the session and
-  says whether this is a good moment. A good moment is a finished piece of work, for example when Claude offers to
-  push, open a PR or start the next task. A bad moment is mid-fix, mid-debug, failing tests or steps of the current
-  task left. The judge is Haiku on your own Claude login, so its small calls count toward your plan.
+- **A judge decides.** After a turn that ends without the tag, once the token floor is reached and no subagents or teammates still run, a small judge model reads the end of the session and says whether this is a good moment. A good moment is a finished piece of work, for example when Claude offers to push, open a PR or start the next task. A bad moment is mid-fix, mid-debug, failing tests or steps of the current task left. The judge is Haiku on your own Claude login, so its small calls count toward your plan.
 
-It never compacts while subagents run, while you have text in the prompt box or while a dialog is open. It also waits
-until the conversation has grown by 60k tokens since the session started or since the last compaction. This is the
-token floor. After its own compaction it sends a continue prompt, so Claude goes on with the work.
+Subagents or teammates that still run hold judging, tag requests and nudges. An agent marked finished or with a transcript quiet for 60 minutes no longer holds them. Missing or unreadable files leave the engine status in charge. Compaction waits while you have text in the prompt box or while a dialog is open. It also waits until the conversation has grown by 60k tokens since the session started or since the last compaction. This is the token floor. After its own compaction it sends a continue prompt, so Claude goes on with the work.
 
 The plugin lives in [`plugin/smartcompact`](plugin/smartcompact). Its [README](plugin/smartcompact/README.md) covers
 the status line, the options, the continue prompt and the log.

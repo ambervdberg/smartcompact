@@ -40,6 +40,7 @@ export type FakeSession = {
   isDialogOpen: boolean;
   agents: AgentInfo[];
   agentChecks: number;
+  listCalls: string[];
   messages: SessionMessage[];
   claudeReply: (request: ModelCompleteRequest) => ModelCompleteResult | Promise<ModelCompleteResult>;
   compactError: string | undefined;
@@ -71,6 +72,7 @@ export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeS
     isDialogOpen: false,
     agents: [],
     agentChecks: 0,
+    listCalls: [],
     messages: [{ role: 'user', text: 'Fix the bug.', toolUses: [] }],
     claudeReply: () => claudeVerdict(true, 'work is done'),
     compactError: undefined,
@@ -303,7 +305,14 @@ function answerCommands(on: On, session: FakeSession): void {
 function answerFiles(on: On, session: FakeSession): void {
   on('fs.exists', (_$, e) => ({ value: hasPath(session, slashed(e.path)) || isShippedPrompt(e.path) }));
   on('fs.list', (_$, e) => {
-    const prefix = `${slashed(e.path)}/`;
+    const folder = slashed(e.path);
+    session.listCalls.push(folder);
+
+    if (!hasPath(session, folder)) {
+      throw new Error(`missing ${folder}`);
+    }
+
+    const prefix = `${folder}/`;
     const entries = new Map<string, FsEntry>();
 
     for (const [path, text] of session.files) {

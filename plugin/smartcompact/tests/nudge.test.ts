@@ -44,6 +44,11 @@ describe('compact nudge', () => {
       event: 'nudge-skipped', reason: 'subagents running', agents: ['worker'],
     }));
 
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(session.agentChecks).toBe(2);
+    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(1);
+
     session.agents = [{ ...session.agents[0]!, status: 'completed' }];
     await $.session.append(toolResult());
     await clock.settle();
@@ -52,8 +57,61 @@ describe('compact nudge', () => {
     expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1]);
 
     await $.session.append(toolResult());
-    expect(session.agentChecks).toBe(2);
+    expect(session.agentChecks).toBe(3);
+
+    session.tokens = 91000;
+    session.agents = [{ ...session.agents[0]!, status: 'running' }];
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
   });
+
+  test('logs a new hold when agents finish even if the nudge was refused', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.tokens = 61000;
+    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+
+    await $.session.append(toolResult());
+    session.agents = [];
+    session.noteDeny = 'policy says no';
+    await $.session.append(toolResult());
+    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+    await $.session.append(toolResult());
+    await clock.settle();
+
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
+  });
+
+  for (const reset of ['compaction', 'clear', 'session start'] as const) {
+    test(`logs a new hold after ${reset}`, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.tokens = 61000;
+      session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+
+      await $.session.append(toolResult());
+      if (reset === 'compaction') {
+        await $.session.compact({ trigger: 'manual', messages: [SUMMARY] });
+      } else if (reset === 'clear') {
+        await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } });
+      } else {
+        await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
+      }
+
+      session.tokens = 1000;
+      await $.turn.complete(finishedTurn());
+      await clock.settle();
+      session.tokens = 62000;
+      await $.session.append(toolResult());
+      await clock.settle();
+
+      expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
+    });
+  }
 
   test('nudges once the floor is passed', async ($, on) => {
     const clock = mock.clock(on, { now: START });

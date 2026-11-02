@@ -37,10 +37,11 @@ export class CompactNudge {
   #floor: ContextFloor;
   /** The added tokens at the last nudge since the count started over, undefined before the first. */
   #lastNudgeAt: number | undefined;
-  /** The floor baseline at the last nudge. A different baseline means the floor restarted. */
-  #baselineAtNudge: number | undefined;
+  /** A new baseline restarts both the nudge count and any hold. */
+  #baselineAtCheck: number | undefined;
   #nudges = 0;
   #isChecking = false;
+  #isHeld = false;
 
   constructor(settings: Settings, floor: ContextFloor) {
     this.#settings = settings;
@@ -80,14 +81,19 @@ export class CompactNudge {
       return;
     }
 
+    this.#baselineAtCheck = this.#floor.baseline();
     const agents = await runningSubagentIds(engine);
 
     if (agents.length > 0) {
-      logEvent(engine, 'nudge-skipped', { reason: 'subagents running', agents });
+      if (!this.#isHeld) {
+        logEvent(engine, 'nudge-skipped', { reason: 'subagents running', agents });
+        this.#isHeld = true;
+      }
 
       return;
     }
 
+    this.#isHeld = false;
     const appended = await engine.appendNote(nudgeText(added));
 
     if (appended.deny !== undefined) {
@@ -97,7 +103,6 @@ export class CompactNudge {
     }
 
     this.#lastNudgeAt = added;
-    this.#baselineAtNudge = this.#floor.baseline();
     this.#nudges += 1;
     logEvent(engine, 'nudge-sent', { tokens, added, nudge: this.#nudges });
     await showTimedStatus(engine, 'nudged');
@@ -118,7 +123,7 @@ export class CompactNudge {
 
   // The floor takes a new baseline on its first turn after a compaction, a /clear or a new session.
   #hasBaselineMoved(): boolean {
-    return this.#baselineAtNudge !== undefined && this.#floor.baseline() !== this.#baselineAtNudge;
+    return this.#baselineAtCheck !== undefined && this.#floor.baseline() !== this.#baselineAtCheck;
   }
 
   #step(): number {
@@ -128,7 +133,8 @@ export class CompactNudge {
   /** Forgets the last nudge, so the next one is number 1. */
   startCountOver(): void {
     this.#lastNudgeAt = undefined;
-    this.#baselineAtNudge = undefined;
+    this.#baselineAtCheck = undefined;
     this.#nudges = 0;
+    this.#isHeld = false;
   }
 }

@@ -3,17 +3,16 @@ import type { Engine } from './engine.ts';
 
 // `waiting` covers an agent that stopped but still waits on background work of its own.
 const BUSY_STATUSES: readonly AgentStatus[] = ['pending', 'running', 'waiting'];
-// The engine can keep a finished agent busy for hours. An agent quiet this long no longer blocks a compaction.
-const STALE_AFTER_MS = 15 * 60 * 1000;
+// Long tool calls can leave a working agent quiet for many minutes. The engine can keep finished agents busy for hours.
+const STALE_AFTER_MS = 60 * 60 * 1000;
+const MISS_CACHE_MS = 60_000;
 
-// Looking the folder up lists every project folder, so it is done once per session. A miss is not kept: the folder
-// may appear with the first subagent.
-let cachedFolder: { sessionId: string; path: string } | undefined;
+// Scanning every project is costly. Retry a miss after a short wait because the first subagent may create the folder.
+let cachedFolder: { sessionId: string; path: string } | { sessionId: string; path: undefined; retryAt: number } | undefined;
 
 /**
- * Ids of the session's subagents and teammates that still work. The engine status picks the candidates. A candidate
- * whose meta file says finished, or whose transcript is quiet for 15 minutes, does not count. Files that cannot be
- * found or read leave the engine status in charge.
+ * Finished agents can linger in the engine. Finished meta or a transcript quiet for 60 minutes overrides a busy status.
+ * Missing or unreadable files leave the engine status in charge.
  */
 export async function runningSubagentIds(engine: Engine): Promise<string[]> {
   const agents = (await engine.agents()).filter((agent) => BUSY_STATUSES.includes(agent.status));
@@ -32,6 +31,13 @@ export async function runningSubagentIds(engine: Engine): Promise<string[]> {
   const running: string[] = [];
 
   for (const agent of agents) {
+    // Teammates in another pane have no files in this session. Their engine status stays in charge.
+    if (!/^[A-Za-z0-9_-]+$/.test(agent.id)) {
+      running.push(agent.id);
+
+      continue;
+    }
+
     const base = `${folder}/agent-${agent.id}`;
 
     if (!(await isMarkedFinished(engine, `${base}.meta.json`)) && !(await isStale(engine, `${base}.jsonl`, now))) {
@@ -68,7 +74,9 @@ async function subagentsFolder(engine: Engine): Promise<string | undefined> {
   const sessionId = await engine.sessionId();
 
   if (cachedFolder?.sessionId === sessionId) {
-    return cachedFolder.path;
+    if (cachedFolder.path !== undefined || (await engine.now()) < cachedFolder.retryAt) {
+      return cachedFolder.path;
+    }
   }
 
   cachedFolder = undefined;
@@ -76,7 +84,7 @@ async function subagentsFolder(engine: Engine): Promise<string | undefined> {
   const configDir = (await engine.env.configDir()) || `${home}/.claude`;
   const projects = `${configDir}/projects`;
 
-  for (const entry of await engine.fs.list(projects)) {
+  for (const entry of await engine.fs.list(projects).catch(() => [])) {
     const path = `${projects}/${entry.name}/${sessionId}/subagents`;
 
     if (entry.kind === 'dir' && (await engine.fs.exists(path))) {
@@ -85,6 +93,8 @@ async function subagentsFolder(engine: Engine): Promise<string | undefined> {
       return path;
     }
   }
+
+  cachedFolder = { sessionId, path: undefined, retryAt: (await engine.now()) + MISS_CACHE_MS };
 
   return undefined;
 }

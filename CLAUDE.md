@@ -25,8 +25,7 @@ In `plugin/smartcompact`:
   refuses `$` passed as an argument.
 - After a main turn, `compact-request.ts` reads the `<smartcompact>` tag. A tagged turn goes to `request-following.ts`,
   any other to `turn-judging.ts`.
-- `compact-nudge.ts` adds a hidden nudge row after a main tool result once the floor is passed, and again every half
-  floor (at least 10k), so the session ends a turn with the tag. `register.ts` runs it from `session.append`.
+- `compact-nudge.ts` adds a hidden nudge row after a main tool result once the floor is passed, and again every half floor (at least 10k), so the session ends a turn with the tag. A due nudge waits while subagents run (`running-subagents.ts`) and logs `nudge-skipped` once per hold. `register.ts` runs it from `session.append`.
 - A yes waits in `pending-compaction.ts` for an empty prompt box and no dialog, compacts, restarts the floor, then
   runs `continue-prompt-submit.ts`.
 - Tests run against `tests/fake-engine.ts`, a stand-in engine.

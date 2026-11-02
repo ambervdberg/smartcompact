@@ -13,6 +13,7 @@ describe('subagent files override a busy engine status', () => {
         const clock = mock.clock(on, { now: START });
         mock.env(on, HOME);
         const session = fakeSession(on);
+        session.id = `finished-${status}-${source}`;
         session.agents = [{ ...BUSY_AGENT, status }];
         seedSubagent(session, 'worker', true, START);
 
@@ -25,19 +26,20 @@ describe('subagent files override a busy engine status', () => {
       });
     }
 
-    for (const age of [15 * 60_000, 15 * 60_000 - 1000]) {
-      test(`a transcript aged ${age / 1000}s ${age === 900000 ? 'allows' : 'blocks'} the ${source}`, NO_FLOOR, async ($, on) => {
+    for (const age of [60 * 60_000, 60 * 60_000 - 1000, 20 * 60_000]) {
+      test(`a transcript aged ${age / 1000}s ${age === 3600000 ? 'allows' : 'blocks'} the ${source}`, NO_FLOOR, async ($, on) => {
         const clock = mock.clock(on, { now: START });
         mock.env(on, HOME);
         const session = fakeSession(on);
+        session.id = `quiet-${age}-${source}`;
         session.agents = [BUSY_AGENT];
         seedSubagent(session, 'worker', false, START - age);
 
         await $.turn.complete(source === 'tag' ? taggedTurn('Write the docs.') : finishedTurn());
         await clock.settle();
 
-        expect(session.compacts).toHaveLength(age === 900000 ? 1 : 0);
-        if (age < 900000) {
+        expect(session.compacts).toHaveLength(age === 3600000 ? 1 : 0);
+        if (age < 3600000) {
           expect(loggedLines(session)).toContainEqual(expect.objectContaining({
             reason: 'subagents running', agents: ['worker'],
           }));
@@ -66,6 +68,7 @@ describe('subagent files override a busy engine status', () => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, { HOME: 'C:/home' });
     const session = fakeSession(on);
+    session.id = 'home-session';
     session.agents = [BUSY_AGENT];
     seedSubagent(session, 'worker', true, START);
 
@@ -73,6 +76,7 @@ describe('subagent files override a busy engine status', () => {
     await clock.settle();
 
     expect(session.compacts).toHaveLength(1);
+    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
   });
 
   for (const problem of ['broken meta', 'unreadable meta', 'missing meta', 'missing transcript'] as const) {
@@ -80,6 +84,7 @@ describe('subagent files override a busy engine status', () => {
       const clock = mock.clock(on, { now: START });
       mock.env(on, HOME);
       const session = fakeSession(on);
+      session.id = `untrusted-${problem}`;
       session.agents = [BUSY_AGENT];
       const transcript = seedSubagent(session, 'worker', false, START);
       const meta = transcript.replace('.jsonl', '.meta.json');
@@ -101,8 +106,9 @@ describe('subagent files override a busy engine status', () => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
+    session.id = 'stale-without-meta';
     session.agents = [BUSY_AGENT];
-    const transcript = seedSubagent(session, 'worker', false, START - 900000);
+    const transcript = seedSubagent(session, 'worker', false, START - 3600000);
     session.files.delete(transcript.replace('.jsonl', '.meta.json'));
 
     await $.turn.complete(taggedTurn('Write the docs.'));
@@ -123,16 +129,81 @@ describe('subagent files override a busy engine status', () => {
     expect(session.compacts).toEqual([]);
 
     seedSubagent(session, 'worker', true, START);
+    await clock.advance(60_001);
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
     await clock.settle();
 
     expect(session.compacts).toHaveLength(1);
+    expect(session.listCalls).toHaveLength(2);
+  });
+
+  test('a missing folder is cached for 60 seconds', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.id = 'cached-miss-session';
+    session.agents = [BUSY_AGENT];
+    session.files.set('C:/home/.claude/projects/unrelated/file', '');
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    seedSubagent(session, 'worker', true, START);
+    await clock.advance(59_999);
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
+    expect(session.compacts).toEqual([]);
+
+    await clock.advance(1);
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-3'));
+    await clock.settle();
+
+    expect(session.listCalls).toHaveLength(2);
+    expect(session.compacts).toHaveLength(1);
+  });
+
+  test('a throwing list keeps trusting the engine status', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.id = 'throwing-list-session';
+    session.agents = [BUSY_AGENT];
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+    await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
+    await clock.settle();
+
+    expect(session.listCalls).toEqual(['C:/home/.claude/projects']);
+    expect(session.compacts).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+      event: 'request-ignored', reason: 'subagents running', agents: ['worker'],
+    }));
+  });
+
+  test('a teammate id keeps trusting the engine status even with finished files', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.id = 'teammate-session';
+    session.agents = [{ ...BUSY_AGENT, id: 'worker@team' }];
+    seedSubagent(session, 'worker@team', true, START - 3600000);
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+      reason: 'subagents running', agents: ['worker@team'],
+    }));
   });
 
   test('keeps the folder for one session and looks again for another', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
+    session.id = 'cached-hit-session';
     session.agents = [BUSY_AGENT];
     const transcript = seedSubagent(session, 'worker', false, START);
     const meta = transcript.replace('.jsonl', '.meta.json');
@@ -141,13 +212,13 @@ describe('subagent files override a busy engine status', () => {
     await clock.settle();
     session.files.delete(meta);
     session.files.delete(transcript);
-    session.files.set('C:/home/.claude/projects/other/session-1/subagents/agent-worker.meta.json', '{"finished":true}');
+    session.files.set(`C:/home/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-2'));
     await clock.settle();
     expect(session.compacts).toEqual([]);
 
-    session.id = 'session-2';
-    session.files.set('C:/home/.claude/projects/other/session-2/subagents/agent-worker.meta.json', '{"finished":true}');
+    session.id = 'cached-hit-next-session';
+    session.files.set(`C:/home/.claude/projects/other/${session.id}/subagents/agent-worker.meta.json`, '{"finished":true}');
     await $.turn.complete(taggedTurn('Write the docs.', 'turn-3'));
     await clock.settle();
 

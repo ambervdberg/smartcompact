@@ -14,7 +14,7 @@ During a turn above the [token floor](#token-floor), the plugin adds a hidden no
 conversation. The note asks Claude to compact at the next good moment: start no new subagents, let the running ones
 finish, then end the answer with the compact tag. See [The nudge](#the-nudge).
 
-Judging, tag requests and nudges wait while subagents or teammates still run. Only agents with a `pending`, `running` or `waiting` status can block them. A meta file with `finished: true` or a transcript last changed at least 15 minutes ago means the agent no longer blocks them. If the files are missing, cannot be read or have broken meta JSON, the plugin trusts the engine status. It finds the files under `CLAUDE_CONFIG_DIR`, or `.claude` in the home folder by default.
+Judging, tag requests and nudges wait while subagents or teammates still run. Only agents with a `pending`, `running` or `waiting` status can block them. A meta file with `finished: true` or a transcript last changed at least 60 minutes ago means the agent no longer blocks them. If the files are missing, cannot be read or have broken meta JSON, the plugin trusts the engine status. It finds the files under `CLAUDE_CONFIG_DIR`, or `.claude` in the home folder by default.
 
 After each turn of the main conversation:
 
@@ -72,7 +72,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `compact skipped 14:03` | Claude Code skipped the compaction, for example because a hook blocked it. |
 | `continued 14:03` | The continue prompt was sent. |
 | `dropped 14:03` | A new turn started, the session stayed busy, you cancelled the compaction or this mode cannot compact (`claude -p`), so the compaction was dropped. |
-| `error 14:02` | The judge or a session's request failed. The log says why. A judge reply that is no verdict counts as no and keeps the countdown. The log has a `judge-unreadable` line with the first 300 characters of the reply in `raw`. |
+| `error 14:02` | The judge or a session's request failed. The log says why. A judge reply that is no verdict counts as no and keeps the countdown. The log has a `judge-unreadable` line with the reply length and whether it starts with `{`. |
 
 ## When the session asks
 
@@ -129,7 +129,7 @@ The count starts over after a compaction, a `/clear` or a new session. There is 
 the floor waits for its first turn. The status line shows `nudged 14:02` and the log has a `nudge-sent` line. A
 refused note is logged as `nudge-error`.
 
-While subagents run, a due nudge waits and the log gets `nudge-skipped` with their ids. The next main tool result after they finish can send the nudge, with no extra token wait.
+While subagents run, a due nudge waits and the log gets `nudge-skipped` with their ids once per hold. The next main tool result after they finish can send the nudge, with no extra token wait.
 
 ## Options
 
@@ -214,7 +214,7 @@ the text of the session's tag, the path of the choices file and a heading line w
 
 - `prompt.context` adds one block named `smartcompact` with the rule from [When the session asks](#when-the-session-asks).
   It changes no other block.
-- `session.append` adds the [nudge](#the-nudge) as a hidden row to the main conversation. A subagent gets none.
+- `session.append` adds the [nudge](#the-nudge) as a hidden row to the main conversation. A due nudge waits while subagents run and logs `nudge-skipped` once per hold. A tag request while subagents run adds the hidden note `compaction skipped, N subagent(s) still running`, with their ids and a request to tag again once they finish. A subagent gets neither note.
 - `command.run` handles only its own command, `/smartcompact-prompt`.
 - It runs `/compact` with the instructions shown in [What it does](#what-it-does).
 
@@ -226,8 +226,7 @@ the text of the session's tag, the path of the choices file and a heading line w
 - `~/.claude/smartcompact/continue-prompt.md`, only when you run `/smartcompact-prompt` and the file does not exist. It
   is a copy of the shipped default, for you to edit.
 
-It edits no settings, instructions, hooks, build or start-up file. It reads only its own files, the session's messages
-and token count, the prompt box and the list of running subagents.
+It edits no settings, instructions, hooks, build or start-up file. It reads its own files, the session's messages and token count, the prompt box and the list of running subagents. It lists `projects/` under the Claude config folder, reads `agent-*.meta.json` and reads the modification time of `agent-*.jsonl`. It reads no subagent transcript content.
 
 ## Development
 
