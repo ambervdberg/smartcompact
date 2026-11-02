@@ -183,6 +183,8 @@ function engineOf($: EngineInterface): Engine {
     complete: (request) => $.model.complete(request),
     fs: {
       exists: (path) => $.fs.exists(path),
+      list: (path) => $.fs.list(path),
+      stat: (path) => $.fs.stat(path),
       read: (path) => $.fs.read(path),
       write: (path, text) => $.fs.write(path, text),
     },
@@ -192,6 +194,7 @@ function engineOf($: EngineInterface): Engine {
       delete: (key) => $.store.delete(key),
     },
     env: {
+      configDir: () => $.env.get('CLAUDE_CONFIG_DIR'),
       logFile: () => $.env.get('SMARTCOMPACT_LOG'),
       userProfile: () => $.env.get('USERPROFILE'),
       home: () => $.env.get('HOME'),

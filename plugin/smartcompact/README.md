@@ -14,6 +14,8 @@ During a turn above the [token floor](#token-floor), the plugin adds a hidden no
 conversation. The note asks Claude to compact at the next good moment: start no new subagents, let the running ones
 finish, then end the answer with the compact tag. See [The nudge](#the-nudge).
 
+Judging, tag requests and nudges wait while subagents or teammates still run. Only agents with a `pending`, `running` or `waiting` status can block them. A meta file with `finished: true` or a transcript last changed at least 15 minutes ago means the agent no longer blocks them. If the files are missing, cannot be read or have broken meta JSON, the plugin trusts the engine status. It finds the files under `CLAUDE_CONFIG_DIR`, or `.claude` in the home folder by default.
+
 After each turn of the main conversation:
 
 1. When the answer ends with the compact tag, the session asked for a compaction itself. The judge is not asked.
@@ -86,7 +88,7 @@ Only a tag at the very end of a main answer counts. Whitespace may follow it. A 
 from a subagent do nothing. An empty or blank tag is ignored too, and the turn goes to the judge. When the main
 answer ends with the tag, the judge is not asked and the first match below runs:
 
-1. Subagents still run: the request is ignored and logged. A finishing subagent wakes the session, so it never hangs.
+1. Subagents still run: the request is ignored and logged. A hidden note lists their ids and tells Claude to carry on, then tag again once they finish. A refused note is logged as `request-error`.
 2. Loop guard: the request is ignored and logged as `loop guard` when this turn came right after a continue prompt
    the plugin sent without a compaction. Without it a session that tags again at once loops. The guard holds in two
    cases:
@@ -126,6 +128,8 @@ tool result above the floor. The next one comes each time the conversation grows
 The count starts over after a compaction, a `/clear` or a new session. There is no note for subagents and none while
 the floor waits for its first turn. The status line shows `nudged 14:02` and the log has a `nudge-sent` line. A
 refused note is logged as `nudge-error`.
+
+While subagents run, a due nudge waits and the log gets `nudge-skipped` with their ids. The next main tool result after they finish can send the nudge, with no extra token wait.
 
 ## Options
 

@@ -1,4 +1,5 @@
 import { instructionsForRequest } from './compact-instructions.ts';
+import { NUDGE_TEXT_START } from './compact-nudge.ts';
 import type { CompactRequest } from './compact-request.ts';
 import type { ContextFloor } from './context-floor.ts';
 import { contextTokens } from './context-tokens.ts';
@@ -14,6 +15,11 @@ import { runningSubagentIds } from './running-subagents.ts';
 import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 import type { FinishedTurn } from './turn-judging.ts';
+
+/** Tells the model why its tag was ignored, in a row the judge input skips. */
+export function subagentsRunningText(agents: string[]): string {
+  return `${NUDGE_TEXT_START}compaction skipped, ${agents.length} subagent(s) still running (${agents.join(', ')}). Carry on with your work. Tag again once they finish.`;
+}
 
 /**
  * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
@@ -115,7 +121,7 @@ export class RequestFollowing {
     return true;
   }
 
-  // On purpose: a finishing subagent wakes the session with a task notification, so it never hangs.
+  // Leave a note for the next turn so the session can carry on and tag again once its subagents finish.
   async #hasRunningSubagents(engine: Engine): Promise<boolean> {
     const agents = await runningSubagentIds(engine);
 
@@ -125,6 +131,11 @@ export class RequestFollowing {
 
     logEvent(engine, 'request-ignored', { reason: 'subagents running', agents });
     await showTimedStatus(engine, 'request ignored');
+    const appended = await engine.appendNote(subagentsRunningText(agents));
+
+    if (appended.deny !== undefined) {
+      logEvent(engine, 'request-error', { message: appended.deny });
+    }
 
     return true;
   }

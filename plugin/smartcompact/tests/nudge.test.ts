@@ -25,6 +25,36 @@ describe('compact nudge', () => {
     expect(session.notes).toEqual([]);
   });
 
+  test('checks agents only when due and nudges after they finish', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+
+    session.tokens = 59000;
+    await $.session.append(toolResult());
+    expect(session.agentChecks).toBe(0);
+
+    session.tokens = 61000;
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(session.agentChecks).toBe(1);
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+      event: 'nudge-skipped', reason: 'subagents running', agents: ['worker'],
+    }));
+
+    session.agents = [{ ...session.agents[0]!, status: 'completed' }];
+    await $.session.append(toolResult());
+    await clock.settle();
+
+    expect(session.notes).toEqual([nudge('61k')]);
+    expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1]);
+
+    await $.session.append(toolResult());
+    expect(session.agentChecks).toBe(2);
+  });
+
   test('nudges once the floor is passed', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);

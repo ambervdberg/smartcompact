@@ -1,6 +1,8 @@
 import type {
   AgentInfo,
   CommandSpec,
+  FsEntry,
+  FsStat,
   ModelCompleteRequest,
   ModelCompleteResult,
   PromptBox,
@@ -41,6 +43,8 @@ export type Engine = {
   complete: (request: ModelCompleteRequest) => Promise<ModelCompleteResult>;
   fs: {
     exists: (path: string) => Promise<boolean>;
+    list: (path: string) => Promise<FsEntry[]>;
+    stat: (path: string) => Promise<FsStat>;
     read: (path: string) => Promise<string>;
     write: (path: string, text: string) => Promise<void>;
   };
@@ -50,6 +54,7 @@ export type Engine = {
     delete: (key: string) => Promise<void>;
   };
   env: {
+    configDir: () => Promise<string | undefined>;
     logFile: () => Promise<string | undefined>;
     userProfile: () => Promise<string | undefined>;
     home: () => Promise<string | undefined>;

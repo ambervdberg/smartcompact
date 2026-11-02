@@ -4,6 +4,7 @@ import type { Engine } from './engine.ts';
 import { messageOf } from './error-message.ts';
 import { logEvent } from './event-log.ts';
 import type { Settings } from './plugin-settings.ts';
+import { runningSubagentIds } from './running-subagents.ts';
 import { showTimedStatus } from './status-line.ts';
 
 // A floor of 0 for a live test would else nudge after every tool call.
@@ -29,7 +30,7 @@ export function nudgeText(addedTokens: number): string {
 
 /**
  * Asks the main session to compact once the floor is passed, and again after each further step.
- * The session picks the moment itself, so a session that always runs subagents still compacts.
+ * The nudge waits while subagents run, then the session picks the moment itself.
  */
 export class CompactNudge {
   #settings: Settings;
@@ -76,6 +77,14 @@ export class CompactNudge {
     const added = this.#floor.addedTokens(tokens);
 
     if (!this.#isDue(added)) {
+      return;
+    }
+
+    const agents = await runningSubagentIds(engine);
+
+    if (agents.length > 0) {
+      logEvent(engine, 'nudge-skipped', { reason: 'subagents running', agents });
+
       return;
     }
 

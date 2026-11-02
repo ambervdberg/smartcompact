@@ -262,11 +262,13 @@ describe('a tag below the floor', () => {
 });
 
 describe('an ignored tag', () => {
-  test('while subagents run, because a finishing subagent wakes the session', NO_FLOOR, async ($, on) => {
+  test('while subagents run, adds a note with their ids for the next turn', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
-    session.agents = [{ id: 'agent-1', description: 'review', type: 'general-purpose', status: 'running' }];
+    session.agents = ['agent-1', 'agent-2'].map((id) => ({
+      id, description: 'review', type: 'general-purpose', status: 'running' as const,
+    }));
 
     await $.turn.complete(taggedTurn('Write the docs.'));
     await clock.settle();
@@ -274,8 +276,30 @@ describe('an ignored tag', () => {
     expect(session.compacts).toEqual([]);
     expect(session.submitted).toEqual([]);
     expect(loggedEvents(session)).toEqual(['compact-requested', 'request-ignored']);
-    expect(loggedLines(session)[1]).toMatchObject({ reason: 'subagents running', agents: ['agent-1'] });
+    expect(loggedLines(session)[1]).toMatchObject({ reason: 'subagents running', agents: ['agent-1', 'agent-2'] });
     expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
+    expect(session.notes).toEqual([
+      'smartcompact: compaction skipped, 2 subagent(s) still running (agent-1, agent-2). Carry on with your work. Tag again once they finish.',
+    ]);
+  });
+
+  test('logs a denied note without throwing', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.agents = ['worker', 'reviewer'].map((id) => ({
+      id, description: 'work', type: 'general-purpose', status: 'running' as const,
+    }));
+    session.noteDeny = 'policy says no';
+
+    await $.turn.complete(taggedTurn('Write the docs.'));
+    await clock.settle();
+
+    expect(session.compacts).toEqual([]);
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+      event: 'request-error', message: 'policy says no',
+    }));
   });
 });
 

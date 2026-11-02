@@ -1,5 +1,6 @@
 import type {
   AgentInfo,
+  FsEntry,
   ModelCompleteRequest,
   ModelCompleteResult,
   On,
@@ -38,6 +39,7 @@ export type FakeSession = {
   draft: string;
   isDialogOpen: boolean;
   agents: AgentInfo[];
+  agentChecks: number;
   messages: SessionMessage[];
   claudeReply: (request: ModelCompleteRequest) => ModelCompleteResult | Promise<ModelCompleteResult>;
   compactError: string | undefined;
@@ -49,6 +51,8 @@ export type FakeSession = {
   commands: string[];
   isCommandRefused: boolean;
   files: Map<string, string>;
+  /** File times in milliseconds, with 0 for files not listed here. */
+  mtimes: Map<string, number>;
   /** Paths whose read fails, as a locked or broken file would. */
   unreadableFiles: Set<string>;
   store: Map<string, unknown>;
@@ -66,6 +70,7 @@ export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeS
     draft: '',
     isDialogOpen: false,
     agents: [],
+    agentChecks: 0,
     messages: [{ role: 'user', text: 'Fix the bug.', toolUses: [] }],
     claudeReply: () => claudeVerdict(true, 'work is done'),
     compactError: undefined,
@@ -77,6 +82,7 @@ export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeS
     commands: [],
     isCommandRefused: false,
     files: new Map(),
+    mtimes: new Map(),
     unreadableFiles: new Set(),
     store: new Map(Object.entries(stored)),
     notes: [],
@@ -125,6 +131,17 @@ export function finishedTurn(turnId = 'turn-1') {
 /** A finished main turn whose answer ends with the compact tag. */
 export function taggedTurn(next: string, turnId = 'turn-1') {
   return { ...finishedTurn(turnId), answer: `The tests pass.\n<smartcompact>${next}</smartcompact>` };
+}
+
+/** Seeds the files Claude Code writes for a subagent. Returns the transcript path. */
+export function seedSubagent(session: FakeSession, id: string, finished: boolean, mtimeMs: number): string {
+  const base = `C:/home/.claude/projects/C--work/${session.id}/subagents/agent-${id}`;
+
+  session.files.set(`${base}.meta.json`, JSON.stringify({ finished }));
+  session.files.set(`${base}.jsonl`, '');
+  session.mtimes.set(`${base}.jsonl`, mtimeMs);
+
+  return `${base}.jsonl`;
 }
 
 /** Runs one model request of a turn to its end: of the main session, or of a subagent when `agentId` is given. */
@@ -199,7 +216,11 @@ function answerSessionCalls(on: On, session: FakeSession): void {
     },
   }));
   on('session.messages', () => ({ value: session.messages }));
-  on('agent.list', () => ({ value: session.agents }));
+  on('agent.list', () => {
+    session.agentChecks += 1;
+
+    return { value: session.agents };
+  });
   on('session.compact', (_$, e) => {
     if (session.compactError !== undefined) {
       throw new Error(session.compactError);
@@ -280,7 +301,45 @@ function answerCommands(on: On, session: FakeSession): void {
 }
 
 function answerFiles(on: On, session: FakeSession): void {
-  on('fs.exists', (_$, e) => ({ value: session.files.has(slashed(e.path)) || isShippedPrompt(e.path) }));
+  on('fs.exists', (_$, e) => ({ value: hasPath(session, slashed(e.path)) || isShippedPrompt(e.path) }));
+  on('fs.list', (_$, e) => {
+    const prefix = `${slashed(e.path)}/`;
+    const entries = new Map<string, FsEntry>();
+
+    for (const [path, text] of session.files) {
+      if (!path.startsWith(prefix)) {
+        continue;
+      }
+
+      const tail = path.slice(prefix.length);
+      const name = tail.split('/')[0]!;
+      const isDir = tail.includes('/');
+
+      entries.set(name, {
+        name,
+        kind: isDir ? 'dir' : 'file',
+        size: isDir ? 0 : text.length,
+        mtimeMs: isDir ? 0 : session.mtimes.get(path) ?? 0,
+        isLink: false,
+      });
+    }
+
+    return { value: [...entries.values()] };
+  });
+  on('fs.stat', (_$, e) => {
+    const path = slashed(e.path);
+
+    if (!hasPath(session, path)) {
+      throw new Error(`missing ${path}`);
+    }
+
+    return { value: {
+      kind: session.files.has(path) ? 'file' as const : 'dir' as const,
+      size: session.files.get(path)?.length ?? 0,
+      mtimeMs: session.mtimes.get(path) ?? 0,
+      isLink: false,
+    } };
+  });
   on('fs.read', (_$, e) => {
     if (session.unreadableFiles.has(slashed(e.path))) {
       throw new Error(`cannot read ${e.path}`);
@@ -293,6 +352,10 @@ function answerFiles(on: On, session: FakeSession): void {
 
     return { value: undefined };
   });
+}
+
+function hasPath(session: FakeSession, path: string): boolean {
+  return session.files.has(path) || [...session.files.keys()].some((file) => file.startsWith(`${path}/`));
 }
 
 function slashed(path: string): string {
