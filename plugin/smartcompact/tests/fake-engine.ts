@@ -1,5 +1,6 @@
 import type {
   AgentInfo,
+  FsEntry,
   ModelCompleteRequest,
   ModelCompleteResult,
   On,
@@ -9,12 +10,18 @@ import type {
 import type { Engine as TestEngine } from 'claude-code/testing';
 
 // The engine hands fs hooks the path in the platform's own spelling, so the fake keys its files with forward slashes.
-const LOG_FILE = 'C:/home/.claude/smartcompact/log.jsonl';
+// An absolute POSIX path works on both hosts: Linux keeps it, Windows adds a drive that `slashed` strips again.
+// A `C:/home` style path fails on Linux, because the engine resolves it under the cwd and the fake misses it.
+/** The fake home folder. */
+export const FAKE_HOME = '/home/test';
+/** A fake CLAUDE_CONFIG_DIR. */
+export const FAKE_CONFIG_DIR = '/config';
+const LOG_FILE = `${FAKE_HOME}/.claude/smartcompact/log.jsonl`;
 // The fake cannot read the disk, so it serves the shipped prompt for the plugin folder under test itself.
 const SHIPPED_PROMPT_TAIL = '/plugin/smartcompact/continue-prompt.md';
 
 /** The user's own continue prompt under the fake home folder. */
-export const OVERRIDE_PROMPT_FILE = 'C:/home/.claude/smartcompact/continue-prompt.md';
+export const OVERRIDE_PROMPT_FILE = `${FAKE_HOME}/.claude/smartcompact/continue-prompt.md`;
 
 /** A copy of `continue-prompt.md`. Keep the two the same. */
 export const SHIPPED_CONTINUE_PROMPT = [
@@ -38,6 +45,8 @@ export type FakeSession = {
   draft: string;
   isDialogOpen: boolean;
   agents: AgentInfo[];
+  agentChecks: number;
+  listCalls: string[];
   messages: SessionMessage[];
   claudeReply: (request: ModelCompleteRequest) => ModelCompleteResult | Promise<ModelCompleteResult>;
   compactError: string | undefined;
@@ -49,6 +58,8 @@ export type FakeSession = {
   commands: string[];
   isCommandRefused: boolean;
   files: Map<string, string>;
+  /** File times in milliseconds, with 0 for files not listed here. */
+  mtimes: Map<string, number>;
   /** Paths whose read fails, as a locked or broken file would. */
   unreadableFiles: Set<string>;
   store: Map<string, unknown>;
@@ -66,6 +77,8 @@ export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeS
     draft: '',
     isDialogOpen: false,
     agents: [],
+    agentChecks: 0,
+    listCalls: [],
     messages: [{ role: 'user', text: 'Fix the bug.', toolUses: [] }],
     claudeReply: () => claudeVerdict(true, 'work is done'),
     compactError: undefined,
@@ -77,6 +90,7 @@ export function fakeSession(on: On, stored: Record<string, unknown> = {}): FakeS
     commands: [],
     isCommandRefused: false,
     files: new Map(),
+    mtimes: new Map(),
     unreadableFiles: new Set(),
     store: new Map(Object.entries(stored)),
     notes: [],
@@ -125,6 +139,17 @@ export function finishedTurn(turnId = 'turn-1') {
 /** A finished main turn whose answer ends with the compact tag. */
 export function taggedTurn(next: string, turnId = 'turn-1') {
   return { ...finishedTurn(turnId), answer: `The tests pass.\n<smartcompact>${next}</smartcompact>` };
+}
+
+/** Seeds the files Claude Code writes for a subagent. Returns the transcript path. */
+export function seedSubagent(session: FakeSession, id: string, finished: boolean, mtimeMs: number): string {
+  const base = `${FAKE_HOME}/.claude/projects/C--work/${session.id}/subagents/agent-${id}`;
+
+  session.files.set(`${base}.meta.json`, JSON.stringify({ finished }));
+  session.files.set(`${base}.jsonl`, '');
+  session.mtimes.set(`${base}.jsonl`, mtimeMs);
+
+  return `${base}.jsonl`;
 }
 
 /** Runs one model request of a turn to its end: of the main session, or of a subagent when `agentId` is given. */
@@ -199,7 +224,11 @@ function answerSessionCalls(on: On, session: FakeSession): void {
     },
   }));
   on('session.messages', () => ({ value: session.messages }));
-  on('agent.list', () => ({ value: session.agents }));
+  on('agent.list', () => {
+    session.agentChecks += 1;
+
+    return { value: session.agents };
+  });
   on('session.compact', (_$, e) => {
     if (session.compactError !== undefined) {
       throw new Error(session.compactError);
@@ -280,7 +309,52 @@ function answerCommands(on: On, session: FakeSession): void {
 }
 
 function answerFiles(on: On, session: FakeSession): void {
-  on('fs.exists', (_$, e) => ({ value: session.files.has(slashed(e.path)) || isShippedPrompt(e.path) }));
+  on('fs.exists', (_$, e) => ({ value: hasPath(session, slashed(e.path)) || isShippedPrompt(e.path) }));
+  on('fs.list', (_$, e) => {
+    const folder = slashed(e.path);
+    session.listCalls.push(folder);
+
+    if (!hasPath(session, folder)) {
+      throw new Error(`missing ${folder}`);
+    }
+
+    const prefix = `${folder}/`;
+    const entries = new Map<string, FsEntry>();
+
+    for (const [path, text] of session.files) {
+      if (!path.startsWith(prefix)) {
+        continue;
+      }
+
+      const tail = path.slice(prefix.length);
+      const name = tail.split('/')[0]!;
+      const isDir = tail.includes('/');
+
+      entries.set(name, {
+        name,
+        kind: isDir ? 'dir' : 'file',
+        size: isDir ? 0 : text.length,
+        mtimeMs: isDir ? 0 : session.mtimes.get(path) ?? 0,
+        isLink: false,
+      });
+    }
+
+    return { value: [...entries.values()] };
+  });
+  on('fs.stat', (_$, e) => {
+    const path = slashed(e.path);
+
+    if (!hasPath(session, path)) {
+      throw new Error(`missing ${path}`);
+    }
+
+    return { value: {
+      kind: session.files.has(path) ? 'file' as const : 'dir' as const,
+      size: session.files.get(path)?.length ?? 0,
+      mtimeMs: session.mtimes.get(path) ?? 0,
+      isLink: false,
+    } };
+  });
   on('fs.read', (_$, e) => {
     if (session.unreadableFiles.has(slashed(e.path))) {
       throw new Error(`cannot read ${e.path}`);
@@ -295,8 +369,12 @@ function answerFiles(on: On, session: FakeSession): void {
   });
 }
 
+function hasPath(session: FakeSession, path: string): boolean {
+  return session.files.has(path) || [...session.files.keys()].some((file) => file.startsWith(`${path}/`));
+}
+
 function slashed(path: string): string {
-  return path.replaceAll('\\', '/');
+  return path.replaceAll('\\', '/').replace(/^[A-Za-z]:/, '');
 }
 
 function isShippedPrompt(path: string): boolean {

@@ -1,11 +1,16 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { SUMMARY, fakeSession, finishedTurn, loggedLines, toolResult, withoutTime } from './fake-engine.ts';
+import { CompactNudge } from '../hooks/compact-nudge.ts';
+import { ContextFloor } from '../hooks/context-floor.ts';
+import { SUMMARY, fakeSession, finishedTurn, loggedLines, toolResult, withoutTime, FAKE_HOME } from './fake-engine.ts';
+import { notInThisMode, settleStub, stubEngine, stubLoggedLines } from './stub-engine.ts';
 
 const START = Date.UTC(2026, 9, 8, 22, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 
-function nudge(added: string): string {
-  return `smartcompact: this conversation grew ${added} tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents and let the running ones finish. Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.`;
+function nudge(added: string, agents: string[] = []): string {
+  const running = agents.length === 0 ? '' : ` ${agents.length} subagent(s) still run (${agents.join(', ')}). You may tag now if the tag names each of them and says what to do with its report, else let them finish first.`;
+
+  return `smartcompact: this conversation grew ${added} tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents.${running} Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.`;
 }
 
 function nudgeLines(session: ReturnType<typeof fakeSession>) {
@@ -13,6 +18,59 @@ function nudgeLines(session: ReturnType<typeof fakeSession>) {
 }
 
 describe('compact nudge', () => {
+  test('skips an unavailable agent lookup until a new session', async () => {
+    let agentChecks = 0;
+    const { engine, record } = stubEngine({
+      agents: async () => {
+        agentChecks += 1;
+        throw new Error(notInThisMode('$.agent.list'));
+      },
+    });
+    const floor = new ContextFloor();
+    const nudge = new CompactNudge({ minTokens: 60000, claudeModel: 'haiku' }, floor);
+
+    for (let result = 0; result < 3; result++) {
+      await nudge.nudgeIfDue(engine);
+    }
+    floor.restartAfterCompaction();
+    floor.takeFirstTurn(1000);
+    nudge.startCountOver();
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(agentChecks).toBe(1);
+    expect(stubLoggedLines(record)).toMatchObject([
+      { event: 'nudge-skipped', reason: 'not available in this mode' },
+    ]);
+    expect(stubLoggedLines(record).filter((line) => line['event'] === 'nudge-error')).toEqual([]);
+    expect(record.statuses).toEqual([]);
+
+    nudge.startNewSession();
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(agentChecks).toBe(2);
+    expect(stubLoggedLines(record)).toHaveLength(2);
+  });
+
+  test('still logs other agent lookup errors', async () => {
+    const { engine, record } = stubEngine({
+      agents: async () => {
+        throw new Error('agent lookup failed');
+      },
+    });
+    const nudge = new CompactNudge({ minTokens: 60000, claudeModel: 'haiku' }, new ContextFloor());
+
+    await nudge.nudgeIfDue(engine);
+    await nudge.nudgeIfDue(engine);
+    await settleStub();
+
+    expect(stubLoggedLines(record)).toMatchObject([
+      { event: 'nudge-error', message: 'agent lookup failed' },
+      { event: 'nudge-error', message: 'agent lookup failed' },
+    ]);
+  });
+
   test('sends no nudge below the floor', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
@@ -24,6 +82,90 @@ describe('compact nudge', () => {
 
     expect(session.notes).toEqual([]);
   });
+
+  test('checks agents only when due and nudges while they run', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.agents = ['worker', 'reviewer'].map((id) => ({
+      id, description: 'review', type: 'general-purpose', status: 'running' as const,
+    }));
+
+    session.tokens = 59000;
+    await $.session.append(toolResult());
+    expect(session.agentChecks).toBe(0);
+
+    session.tokens = 61000;
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(session.agentChecks).toBe(1);
+    expect(session.notes).toEqual([nudge('61k', ['worker', 'reviewer'])]);
+    expect(nudgeLines(session)).toEqual([expect.objectContaining({ nudge: 1, agents: ['worker', 'reviewer'] })]);
+    expect(withoutTime(session.statuses.at(-1))).toBe('nudged');
+
+    await $.session.append(toolResult());
+    expect(session.agentChecks).toBe(1);
+    expect(session.notes).toHaveLength(1);
+
+    session.agents = [];
+    session.tokens = 91000;
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(session.agentChecks).toBe(2);
+    expect(session.notes).toEqual([nudge('61k', ['worker', 'reviewer']), nudge('91k')]);
+    expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1, 2]);
+    expect(nudgeLines(session)[1]).not.toHaveProperty('agents');
+  });
+
+  test('retries a refused nudge while agents run', async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.tokens = 61000;
+    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+    session.noteDeny = 'policy says no';
+
+    await $.session.append(toolResult());
+    await clock.settle();
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({ event: 'nudge-error', message: 'policy says no' }));
+
+    session.noteDeny = undefined;
+    await $.session.append(toolResult());
+    await clock.settle();
+
+    expect(session.notes).toEqual([nudge('61k', ['worker'])]);
+    expect(nudgeLines(session)).toEqual([expect.objectContaining({ nudge: 1, agents: ['worker'] })]);
+  });
+
+  for (const reset of ['compaction', 'clear', 'session start'] as const) {
+    test(`restarts nudges with running agents after ${reset}`, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.tokens = 61000;
+      session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+
+      await $.session.append(toolResult());
+      if (reset === 'compaction') {
+        await $.session.compact({ trigger: 'manual', messages: [SUMMARY] });
+      } else if (reset === 'clear') {
+        await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } });
+      } else {
+        await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true });
+      }
+
+      session.tokens = 1000;
+      await $.turn.complete(finishedTurn());
+      await clock.settle();
+      session.tokens = 62000;
+      await $.session.append(toolResult());
+      await clock.settle();
+
+      expect(session.notes).toEqual([nudge('61k', ['worker']), nudge('61k', ['worker'])]);
+      expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1, 1]);
+    });
+  }
 
   test('nudges once the floor is passed', async ($, on) => {
     const clock = mock.clock(on, { now: START });

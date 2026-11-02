@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { OVERRIDE_PROMPT_FILE, fakeSession, finishedTurn, loggedEvents } from './fake-engine.ts';
+import { OVERRIDE_PROMPT_FILE, fakeSession, finishedTurn, loggedEvents, FAKE_HOME } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 4, 10, 0);
-const HOME = { USERPROFILE: 'C:/home' };
+const HOME = { USERPROFILE: FAKE_HOME };
 const JUDGE_EVERY_TURN = { options: { minTokens: 0 } };
 const DEFAULT_AFTER_JUDGE = [
   'Context was compacted automatically.',
@@ -102,7 +102,7 @@ describe('the continue prompt placeholders', () => {
     await $.turn.complete(finishedTurn());
     await clock.settle();
 
-    const file = 'C:/home/.claude/smartcompact/choices.md';
+    const file = `${FAKE_HOME}/.claude/smartcompact/choices.md`;
     const heading = '## 2026-10-04T10:00:00.000Z | C:/work | session-1';
 
     expect(session.submitted).toEqual([`File: ${file}\n${heading}\nAgain: ${file}`]);

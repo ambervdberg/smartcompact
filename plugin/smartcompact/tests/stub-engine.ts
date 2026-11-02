@@ -45,11 +45,18 @@ export function stubEngine(overrides: Partial<Engine>): { engine: Engine; record
     complete: async () => ({ isAnswered: false, reason: 'empty-reply', usage: NO_USAGE }),
     fs: {
       exists: async (path) => record.files.has(path),
+      list: async () => [],
+      stat: async () => { throw new Error('no files to stat in the stub'); },
       read: async (path) => record.files.get(path) ?? '',
       write: async (path, text) => void record.files.set(path, text),
     },
     store: { get: async () => undefined, set: async () => undefined, delete: async () => undefined },
-    env: { logFile: async () => LOG_FILE, userProfile: async () => undefined, home: async () => undefined },
+    env: {
+      configDir: async () => undefined,
+      logFile: async () => LOG_FILE,
+      userProfile: async () => undefined,
+      home: async () => undefined,
+    },
     ...overrides,
   };
 
