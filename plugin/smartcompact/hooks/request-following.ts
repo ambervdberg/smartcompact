@@ -18,12 +18,12 @@ import type { FinishedTurn } from './turn-judging.ts';
 
 /** Tells the model why its tag was ignored, in a row the judge input skips. */
 export function subagentsRunningText(agents: string[]): string {
-  return `${NUDGE_TEXT_START}compaction skipped, ${agents.length} subagent(s) still running (${agents.join(', ')}). Carry on with your work. Tag again once they finish.`;
+  return `${NUDGE_TEXT_START}compaction skipped, ${agents.length} subagent(s) still running (${agents.join(', ')}). To compact now, tag again and name each running agent id with what to do with its report. Or tag again once they finish.`;
 }
 
 /**
- * After a main turn that ended with the compact tag, without the judge: ignores the request while subagents run
- * or when it would loop, continues without a compaction below the floor, and else hands it to the pending compaction.
+ * After a main turn that ended with the compact tag, without the judge: ignores the request if it omits a running agent id
+ * or would loop, continues without a compaction below the floor, and else hands it to the pending compaction.
  */
 export class RequestFollowing {
   #settings: Settings;
@@ -73,9 +73,11 @@ export class RequestFollowing {
     const isFirstTurn = await this.#takeFirstTurn(engine, tokens);
     const added = this.#floor.addedTokens(tokens);
 
-    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline() });
+    const agents = await runningSubagentIds(engine);
 
-    if (await this.#hasRunningSubagents(engine)) {
+    logEvent(engine, 'compact-requested', { tokens, added, baseline: this.#floor.baseline(), ...(agents.length > 0 ? { agents } : {}) });
+
+    if (await this.#ignoresMissingAgentIds(engine, request.next, agents)) {
       return;
     }
 
@@ -100,7 +102,7 @@ export class RequestFollowing {
       source: 'request',
       tokens,
       turnsAtEnd: turn.turnsAtEnd,
-      instructions: instructionsForRequest(request.next),
+      instructions: instructionsForRequest(request.next, agents),
       next: request.next,
       continueWhenSkipped: true,
       errorEvent: 'request-error',
@@ -121,15 +123,15 @@ export class RequestFollowing {
     return true;
   }
 
-  // Leave a note for the next turn so the session can carry on and tag again once its subagents finish.
-  async #hasRunningSubagents(engine: Engine): Promise<boolean> {
-    const agents = await runningSubagentIds(engine);
+  // A tag must name each running agent so the summary can keep its pending report.
+  async #ignoresMissingAgentIds(engine: Engine, next: string, agents: string[]): Promise<boolean> {
+    const missing = agents.filter((id) => !next.includes(id));
 
-    if (agents.length === 0) {
+    if (missing.length === 0) {
       return false;
     }
 
-    logEvent(engine, 'request-ignored', { reason: 'subagents running', agents });
+    logEvent(engine, 'request-ignored', { reason: 'subagents running', agents, missing });
     await showTimedStatus(engine, 'request ignored');
     const appended = await engine.appendNote(subagentsRunningText(agents));
 

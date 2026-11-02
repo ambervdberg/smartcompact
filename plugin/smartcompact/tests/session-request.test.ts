@@ -45,6 +45,29 @@ describe('a tag at the end of a main answer', () => {
     expect(session.statuses.map(withoutTime)).toEqual(['will compact', 'compacting...', 'compacted', 'continued']);
   });
 
+  test('names all running agents, keeps their reports in the summary and continues', NO_FLOOR, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    session.agents = ['agent-1', 'agent-2'].map((id) => ({
+      id, description: 'review', type: 'general-purpose', status: 'running' as const,
+    }));
+    const next = 'Use agent-1 to fix bugs and agent-2 to finish the docs when their reports arrive.';
+
+    await $.turn.complete(taggedTurn(next));
+    await clock.settle();
+
+    expect(session.claudeModels).toEqual([]);
+    expect(session.notes).toEqual([]);
+    expect(session.compacts).toEqual([
+      `Keep the current goal, open decisions and what this next step needs: ${next} Keep the ids of the subagents still running (agent-1, agent-2) and what to do with each report when it arrives.`,
+    ]);
+    expect(session.submitted).toEqual([[COMPACTED_LINE, next, ...PROMPT_BODY].join('\n')]);
+    expect(loggedEvents(session)).toEqual(['compact-requested', 'compact-started', 'compact-typed', 'continue-typed']);
+    expect(loggedLines(session)[0]).toMatchObject({ agents: ['agent-1', 'agent-2'] });
+    expect(loggedLines(session)[0]).not.toHaveProperty('next');
+  });
+
   test('an empty tag is an untagged turn and goes to the judge', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
@@ -263,26 +286,31 @@ describe('a tag below the floor', () => {
 });
 
 describe('an ignored tag', () => {
-  test('while subagents run, adds a note with their ids for the next turn', NO_FLOOR, async ($, on) => {
-    const clock = mock.clock(on, { now: START });
-    mock.env(on, HOME);
-    const session = fakeSession(on);
-    session.agents = ['agent-1', 'agent-2'].map((id) => ({
-      id, description: 'review', type: 'general-purpose', status: 'running' as const,
-    }));
+  for (const next of ['Write the docs.', 'Use agent-1 to fix bugs when its report arrives.']) {
+    test(`while subagents run, ignores a tag missing ids: ${next}`, NO_FLOOR, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.agents = ['agent-1', 'agent-2'].map((id) => ({
+        id, description: 'review', type: 'general-purpose', status: 'running' as const,
+      }));
 
-    await $.turn.complete(taggedTurn('Write the docs.'));
-    await clock.settle();
+      await $.turn.complete(taggedTurn(next));
+      await clock.settle();
 
-    expect(session.compacts).toEqual([]);
-    expect(session.submitted).toEqual([]);
-    expect(loggedEvents(session)).toEqual(['compact-requested', 'request-ignored']);
-    expect(loggedLines(session)[1]).toMatchObject({ reason: 'subagents running', agents: ['agent-1', 'agent-2'] });
-    expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
-    expect(session.notes).toEqual([
-      'smartcompact: compaction skipped, 2 subagent(s) still running (agent-1, agent-2). Carry on with your work. Tag again once they finish.',
-    ]);
-  });
+      expect(session.compacts).toEqual([]);
+      expect(session.submitted).toEqual([]);
+      expect(loggedEvents(session)).toEqual(['compact-requested', 'request-ignored']);
+      expect(loggedLines(session)[1]).toMatchObject({
+        reason: 'subagents running', agents: ['agent-1', 'agent-2'],
+        missing: next.includes('agent-1') ? ['agent-2'] : ['agent-1', 'agent-2'],
+      });
+      expect(withoutTime(session.statuses.at(-1))).toBe('request ignored');
+      expect(session.notes).toEqual([
+        'smartcompact: compaction skipped, 2 subagent(s) still running (agent-1, agent-2). To compact now, tag again and name each running agent id with what to do with its report. Or tag again once they finish.',
+      ]);
+    });
+  }
 
   test('logs a denied note without throwing', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });

@@ -7,8 +7,10 @@ import { notInThisMode, settleStub, stubEngine, stubLoggedLines } from './stub-e
 const START = Date.UTC(2026, 9, 8, 22, 0);
 const HOME = { USERPROFILE: FAKE_HOME };
 
-function nudge(added: string): string {
-  return `smartcompact: this conversation grew ${added} tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents and let the running ones finish. Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.`;
+function nudge(added: string, agents: string[] = []): string {
+  const running = agents.length === 0 ? '' : ` ${agents.length} subagent(s) still run (${agents.join(', ')}). You may tag now if the tag names each of them and says what to do with its report, else let them finish first.`;
+
+  return `smartcompact: this conversation grew ${added} tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents.${running} Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.`;
 }
 
 function nudgeLines(session: ReturnType<typeof fakeSession>) {
@@ -81,11 +83,13 @@ describe('compact nudge', () => {
     expect(session.notes).toEqual([]);
   });
 
-  test('checks agents only when due and nudges after they finish', async ($, on) => {
+  test('checks agents only when due and nudges while they run', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
-    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+    session.agents = ['worker', 'reviewer'].map((id) => ({
+      id, description: 'review', type: 'general-purpose', status: 'running' as const,
+    }));
 
     session.tokens = 59000;
     await $.session.append(toolResult());
@@ -95,54 +99,47 @@ describe('compact nudge', () => {
     await $.session.append(toolResult());
     await clock.settle();
     expect(session.agentChecks).toBe(1);
-    expect(session.notes).toEqual([]);
-    expect(loggedLines(session)).toContainEqual(expect.objectContaining({
-      event: 'nudge-skipped', reason: 'subagents running', agents: ['worker'],
-    }));
+    expect(session.notes).toEqual([nudge('61k', ['worker', 'reviewer'])]);
+    expect(nudgeLines(session)).toEqual([expect.objectContaining({ nudge: 1, agents: ['worker', 'reviewer'] })]);
+    expect(withoutTime(session.statuses.at(-1))).toBe('nudged');
 
+    await $.session.append(toolResult());
+    expect(session.agentChecks).toBe(1);
+    expect(session.notes).toHaveLength(1);
+
+    session.agents = [];
+    session.tokens = 91000;
     await $.session.append(toolResult());
     await clock.settle();
     expect(session.agentChecks).toBe(2);
-    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(1);
-
-    session.agents = [{ ...session.agents[0]!, status: 'completed' }];
-    await $.session.append(toolResult());
-    await clock.settle();
-
-    expect(session.notes).toEqual([nudge('61k')]);
-    expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1]);
-
-    await $.session.append(toolResult());
-    expect(session.agentChecks).toBe(3);
-
-    session.tokens = 91000;
-    session.agents = [{ ...session.agents[0]!, status: 'running' }];
-    await $.session.append(toolResult());
-    await clock.settle();
-    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
+    expect(session.notes).toEqual([nudge('61k', ['worker', 'reviewer']), nudge('91k')]);
+    expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1, 2]);
+    expect(nudgeLines(session)[1]).not.toHaveProperty('agents');
   });
 
-  test('logs a new hold when agents finish even if the nudge was refused', async ($, on) => {
+  test('retries a refused nudge while agents run', async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
     session.tokens = 61000;
     session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+    session.noteDeny = 'policy says no';
 
     await $.session.append(toolResult());
-    session.agents = [];
-    session.noteDeny = 'policy says no';
-    await $.session.append(toolResult());
-    session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+    await clock.settle();
+    expect(session.notes).toEqual([]);
+    expect(loggedLines(session)).toContainEqual(expect.objectContaining({ event: 'nudge-error', message: 'policy says no' }));
+
+    session.noteDeny = undefined;
     await $.session.append(toolResult());
     await clock.settle();
 
-    expect(session.notes).toEqual([]);
-    expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
+    expect(session.notes).toEqual([nudge('61k', ['worker'])]);
+    expect(nudgeLines(session)).toEqual([expect.objectContaining({ nudge: 1, agents: ['worker'] })]);
   });
 
   for (const reset of ['compaction', 'clear', 'session start'] as const) {
-    test(`logs a new hold after ${reset}`, async ($, on) => {
+    test(`restarts nudges with running agents after ${reset}`, async ($, on) => {
       const clock = mock.clock(on, { now: START });
       mock.env(on, HOME);
       const session = fakeSession(on);
@@ -165,7 +162,8 @@ describe('compact nudge', () => {
       await $.session.append(toolResult());
       await clock.settle();
 
-      expect(loggedLines(session).filter((line) => line['event'] === 'nudge-skipped')).toHaveLength(2);
+      expect(session.notes).toEqual([nudge('61k', ['worker']), nudge('61k', ['worker'])]);
+      expect(nudgeLines(session).map((line) => line['nudge'])).toEqual([1, 1]);
     });
   }
 

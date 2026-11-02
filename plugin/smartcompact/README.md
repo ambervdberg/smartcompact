@@ -10,11 +10,9 @@ claude plugin install smartcompact@smartcompact
 
 ## What it does
 
-During a turn above the [token floor](#token-floor), the plugin adds a hidden note after a tool result of the main
-conversation. The note asks Claude to compact at the next good moment: start no new subagents, let the running ones
-finish, then end the answer with the compact tag. See [The nudge](#the-nudge).
+During a turn above the [token floor](#token-floor), the plugin adds a hidden note after a tool result of the main conversation. The note asks Claude to compact at the next good moment and start no new subagents. If agents still run, the tag must name each id and say what to do with its report. Else Claude lets them finish first. See [The nudge](#the-nudge).
 
-Judging, tag requests and nudges wait while subagents or teammates still run. Only agents with a `pending`, `running` or `waiting` status can block them. A meta file with `finished: true` or a transcript last changed at least 60 minutes ago means the agent no longer blocks them. If the files are missing, cannot be read or have broken meta JSON, the plugin trusts the engine status. It finds the files under `CLAUDE_CONFIG_DIR`, or `.claude` in the home folder by default.
+The judge waits while subagents or teammates still run. Tag requests can go on when the tag names each running agent id, and nudges list those ids. Only agents with a `pending`, `running` or `waiting` status count as still running. A meta file with `finished: true` or a transcript last changed at least 60 minutes ago means the agent no longer counts. If the files are missing, cannot be read or have broken meta JSON, the plugin trusts the engine status. It finds the files under `CLAUDE_CONFIG_DIR`, or `.claude` in the home folder by default.
 
 After each turn of the main conversation:
 
@@ -30,6 +28,8 @@ After each turn of the main conversation:
 6. After its own compaction it sends the [continue prompt](#continue-prompt), so Claude goes on with the work. It
    never sends one after a compaction it did not start, such as `/compact` typed by hand or Claude Code's own
    auto-compact.
+
+A tag request uses `Keep the current goal, open decisions and what this next step needs: <text>` as its compaction instructions. If agents still run, it adds `Keep the ids of the subagents still running (<ids>) and what to do with each report when it arrives.`
 
 If you start a new turn before the compaction runs, the plugin drops it. The next finished turn is judged again.
 A dialog that stays open for two minutes also drops it.
@@ -65,7 +65,7 @@ Code's own notices. A custom `statusLine` script does not show it.
 | `keep going 14:02` | The judge said this is no good moment to compact. |
 | `will compact 14:02` | The judge said yes or the session asked. The compaction follows when the session is free. |
 | `yes cancelled 14:02` | The judge said yes, but a new turn or subagent started meanwhile. |
-| `request ignored 14:02` | The session asked, but subagents still ran, the loop guard held or the turn had no token count yet. The log says why. |
+| `request ignored 14:02` | The session asked, but the tag missed a running agent id, the loop guard held or the turn had no token count yet. The log says why. |
 | `waiting for empty prompt` | A compaction waits until you empty the prompt box. |
 | `waiting for idle` | A compaction waits for a dialog to close or for the session to be free. |
 | `compacting...`, `compacted 14:03` | The compaction runs or has finished. |
@@ -76,19 +76,13 @@ Code's own notices. A custom `statusLine` script does not show it.
 
 ## When the session asks
 
-The plugin adds a short rule to the context of each conversation, as a block named `smartcompact`. Claude Code
-renders it with the first message and again after each compaction or `/clear`. It tells Claude to end its answer
-with `<smartcompact>the prompt for the next piece</smartcompact>` when a piece of work is done, the next piece of
-the same task can start right away and no longer needs the details so far, and then to stop. It leaves the tag out
-when it waits for other sessions or agents, or when all work is done. It also leaves it out when it waits for the
-user, unless smartcompact asked it to compact. It never writes an empty tag. Subagents get the block too, so it ends
-with `Only the main session does this, never a subagent.`
+The plugin adds a short rule to the context of each conversation, as a block named `smartcompact`. Claude Code renders it with the first message and again after each compaction or `/clear`. It tells Claude to end its answer with `<smartcompact>the prompt for the next piece</smartcompact>` when a piece of work is done, the next piece of the same task can start right away and no longer needs the details so far, and then to stop. It leaves the tag out when it waits for other sessions or agents, or when all work is done. It also leaves the tag out when it waits for the user, unless smartcompact asked it to compact. It never writes an empty tag. Subagents get the block too, so it ends with `Only the main session does this, never a subagent.`
 
 Only a tag at the very end of a main answer counts. Whitespace may follow it. A tag earlier in the text and a tag
 from a subagent do nothing. An empty or blank tag is ignored too, and the turn goes to the judge. When the main
 answer ends with the tag, the judge is not asked and the first match below runs:
 
-1. Subagents still run: the request is ignored and logged. A hidden note lists their ids and tells Claude to carry on, then tag again once they finish. A refused note is logged as `request-error`.
+1. A running agent id is missing from the tag text: the request is ignored and logged with the running and missing ids. A hidden note lists the running ids and asks Claude to tag again with each id and what to do with its report, or once they finish. A refused note is logged as `request-error`. A tag that contains every running id as plain text goes on to the next check.
 2. Loop guard: the request is ignored and logged as `loop guard` when this turn came right after a continue prompt
    the plugin sent without a compaction. Without it a session that tags again at once loops. The guard holds in two
    cases:
@@ -96,9 +90,7 @@ answer ends with the tag, the judge is not asked and the first match below runs:
    - The previous continue prompt was sent below the floor, and this turn is below the floor too.
 3. Below the token floor: nothing is compacted and the continue prompt is sent at once. The first turn of a new
    session and the first turn after a compaction always count as below the floor.
-4. Else the compaction waits for an empty prompt box and a closed dialog, as after a judge yes. The instructions are
-   `Keep the current goal, open decisions and what this next step needs: <text>`. When Claude Code skips the compaction,
-   the continue prompt is still sent.
+4. Else the compaction waits for an empty prompt box and a closed dialog, as after a judge yes. The instructions are `Keep the current goal, open decisions and what this next step needs: <text>`. With running agents it adds `Keep the ids of the subagents still running (<ids>) and what to do with each report when it arrives.` When Claude Code skips the compaction, the continue prompt is still sent.
 
 The text in the tag fills `{next}` in the continue prompt.
 
@@ -106,11 +98,11 @@ The text in the tag fills `{next}` in the continue prompt.
 
 Above the token floor, a tool result of the main conversation can be followed by a hidden note. The note reads:
 
-> smartcompact: this conversation grew 64k tokens since smartcompact started counting. Plan a compaction at the
-> next good moment. Start no new subagents and let the running ones finish. Then end your answer with
-> `<smartcompact>the prompt to start the next piece with</smartcompact>`. Do this also when you would wait for the
-> user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to
-> undo, such as a push, a delete or a publish.
+> smartcompact: this conversation grew 64k tokens since smartcompact started counting. Plan a compaction at the next good moment. Start no new subagents. Then end your answer with `<smartcompact>the prompt to start the next piece with</smartcompact>`. Do this also when you would wait for the user, and put your question in the tag. Leave the tag out when the user must confirm an action that is hard to undo, such as a push, a delete or a publish.
+
+With running agents, the note adds this after "Start no new subagents.":
+
+> 2 subagent(s) still run (agent-1, agent-2). You may tag now if the tag names each of them and says what to do with its report, else let them finish first.
 
 After a nudge, a question for you goes into the tag. After the compaction the shipped continue prompt asks Claude to
 ask it again. To let Claude decide and go on without you, put a line like this in your own
@@ -129,7 +121,7 @@ The count starts over after a compaction, a `/clear` or a new session. There is 
 the floor waits for its first turn. The status line shows `nudged 14:02` and the log has a `nudge-sent` line. A
 refused note is logged as `nudge-error`.
 
-While subagents run, a due nudge waits and the log gets `nudge-skipped` with their ids once per hold. The next main tool result after they finish can send the nudge, with no extra token wait.
+A due nudge is sent even while subagents run. The `nudge-sent` log line includes their ids when any still run.
 
 When a mode such as `claude -p` lacks a call the nudge needs, the nudge skips without an error status. The log gets one `nudge-skipped` with reason `not available in this mode`. Later tool results do not retry until a new session starts. Compaction and `/clear` do not enable the nudge again.
 
@@ -216,7 +208,7 @@ the text of the session's tag, the path of the choices file and a heading line w
 
 - `prompt.context` adds one block named `smartcompact` with the rule from [When the session asks](#when-the-session-asks).
   It changes no other block.
-- `session.append` adds the [nudge](#the-nudge) as a hidden row to the main conversation. A due nudge waits while subagents run and logs `nudge-skipped` once per hold. A tag request while subagents run adds the hidden note `compaction skipped, N subagent(s) still running`, with their ids and a request to tag again once they finish. A subagent gets neither note.
+- `session.append` adds the [nudge](#the-nudge) as a hidden row to the main conversation, with the ids of any running agents. A tag request that misses a running agent id adds the hidden note `compaction skipped, N subagent(s) still running`, with their ids and a request to tag again with each id and what to do with its report, or once they finish. A subagent gets neither note.
 - `command.run` handles only its own command, `/smartcompact-prompt`.
 - It runs `/compact` with the instructions shown in [What it does](#what-it-does).
 

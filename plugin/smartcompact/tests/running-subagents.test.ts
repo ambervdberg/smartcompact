@@ -178,7 +178,7 @@ describe('subagent files override a busy engine status', () => {
     expect(session.listCalls).toEqual([`${FAKE_HOME}/.claude/projects`]);
     expect(session.compacts).toEqual([]);
     expect(loggedLines(session)).toContainEqual(expect.objectContaining({
-      event: 'request-ignored', reason: 'subagents running', agents: ['worker'],
+      event: 'request-ignored', reason: 'subagents running', agents: ['worker'], missing: ['worker'],
     }));
   });
 

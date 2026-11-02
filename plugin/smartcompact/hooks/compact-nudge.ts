@@ -14,14 +14,17 @@ const MIN_STEP_TOKENS = 10_000;
 /** How every nudge row starts. The judge input skips rows that start this way. */
 export const NUDGE_TEXT_START = 'smartcompact: ';
 
-/** The row that asks the session to pick a moment to compact, with the added tokens in thousands. */
-export function nudgeText(addedTokens: number): string {
+/** Asks the session to pick a moment to compact and keep any pending subagent reports. */
+export function nudgeText(addedTokens: number, agents: string[] = []): string {
   const added = `${Math.floor(addedTokens / 1000)}k`;
 
   return [
     `${NUDGE_TEXT_START}this conversation grew ${added} tokens since smartcompact started counting.`,
     'Plan a compaction at the next good moment.',
-    'Start no new subagents and let the running ones finish.',
+    'Start no new subagents.',
+    ...(agents.length === 0 ? [] : [
+      `${agents.length} subagent(s) still run (${agents.join(', ')}). You may tag now if the tag names each of them and says what to do with its report, else let them finish first.`,
+    ]),
     'Then end your answer with <smartcompact>the prompt to start the next piece with</smartcompact>.',
     'Do this also when you would wait for the user, and put your question in the tag.',
     'Leave the tag out when the user must confirm an action that is hard to undo,',
@@ -31,18 +34,17 @@ export function nudgeText(addedTokens: number): string {
 
 /**
  * Asks the main session to compact once the floor is passed, and again after each further step.
- * The nudge waits while subagents run, then the session picks the moment itself.
+ * Lists running subagents so the session can name them in a tag or let them finish first.
  */
 export class CompactNudge {
   #settings: Settings;
   #floor: ContextFloor;
   /** The added tokens at the last nudge since the count started over, undefined before the first. */
   #lastNudgeAt: number | undefined;
-  /** A new baseline restarts both the nudge count and any hold. */
+  /** A new baseline restarts the nudge count. */
   #baselineAtCheck: number | undefined;
   #nudges = 0;
   #isChecking = false;
-  #isHeld = false;
   #isUnavailable = false;
 
   constructor(settings: Settings, floor: ContextFloor) {
@@ -93,17 +95,7 @@ export class CompactNudge {
     this.#baselineAtCheck = this.#floor.baseline();
     const agents = await runningSubagentIds(engine);
 
-    if (agents.length > 0) {
-      if (!this.#isHeld) {
-        logEvent(engine, 'nudge-skipped', { reason: 'subagents running', agents });
-        this.#isHeld = true;
-      }
-
-      return;
-    }
-
-    this.#isHeld = false;
-    const appended = await engine.appendNote(nudgeText(added));
+    const appended = await engine.appendNote(nudgeText(added, agents));
 
     if (appended.deny !== undefined) {
       logEvent(engine, 'nudge-error', { message: appended.deny });
@@ -113,7 +105,7 @@ export class CompactNudge {
 
     this.#lastNudgeAt = added;
     this.#nudges += 1;
-    logEvent(engine, 'nudge-sent', { tokens, added, nudge: this.#nudges });
+    logEvent(engine, 'nudge-sent', { tokens, added, nudge: this.#nudges, ...(agents.length > 0 ? { agents } : {}) });
     await showTimedStatus(engine, 'nudged');
   }
 
@@ -150,6 +142,5 @@ export class CompactNudge {
     this.#lastNudgeAt = undefined;
     this.#baselineAtCheck = undefined;
     this.#nudges = 0;
-    this.#isHeld = false;
   }
 }
