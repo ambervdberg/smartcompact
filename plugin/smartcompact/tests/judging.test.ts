@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'claude-code/testing';
-import { claudeVerdict, fakeSession, finishedTurn, loggedEvents, loggedLines } from './fake-engine.ts';
+import { claudeVerdict, fakeSession, finishedTurn, loggedEvents, loggedLines, seedSubagent } from './fake-engine.ts';
 
 const START = Date.UTC(2026, 9, 4, 10, 0);
 const HOME = { USERPROFILE: 'C:/home' };
@@ -96,6 +96,44 @@ describe('subagents', () => {
 
     expect(session.claudeModels).toEqual(['haiku']);
   });
+});
+
+describe('subagent race guard', () => {
+  for (const finished of [false, true]) {
+    test(`a subagent starting during judging ${finished ? 'does not cancel a yes when its files say finished' : 'cancels the yes'}`, { options: { minTokens: 0 } }, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.id = `judge-race-${finished}`;
+      let answer: () => void = () => undefined;
+      const slowReply = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      session.claudeReply = async () => {
+        await slowReply;
+
+        return claudeVerdict(true, 'done');
+      };
+
+      await $.turn.complete(finishedTurn());
+      await clock.settle();
+      expect(session.claudeModels).toEqual(['haiku']);
+      session.agents = [{ id: 'worker', description: 'review', type: 'general-purpose', status: 'running' }];
+      seedSubagent(session, 'worker', finished, START);
+      answer();
+      await clock.settle();
+
+      expect(session.compacts).toHaveLength(finished ? 1 : 0);
+      if (finished) {
+        expect(loggedEvents(session)).toContain('judge-yes');
+        expect(loggedEvents(session)).not.toContain('judge-cancelled');
+      } else {
+        expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+          event: 'judge-cancelled', reason: 'subagents running', agents: ['worker'],
+        }));
+      }
+    });
+  }
 });
 
 describe('judge model', () => {
@@ -205,10 +243,29 @@ describe('judge errors', () => {
     await $.turn.complete(finishedTurn());
     await clock.settle();
 
-    expect(loggedLines(session)).toMatchObject([{ event: 'judge-unreadable', replyChars: 10, outputTokens: 4 }]);
-    expect(loggedLines(session)[0]).not.toHaveProperty('reply');
+    expect(loggedLines(session)).toMatchObject([{ event: 'judge-unreadable', replyChars: 10, startsWithBrace: false, outputTokens: 4 }]);
     expect(session.compacts).toEqual([]);
     expect(session.statuses.at(-1)).toBe('judge after next turn');
+    expect(loggedLines(session)[0]).not.toHaveProperty('raw');
+    expect(JSON.stringify(loggedLines(session))).not.toContain('I think so');
+  });
+
+  test('an unreadable reply logs only its length and shape', { options: { minTokens: 0 } }, async ($, on) => {
+    const clock = mock.clock(on, { now: START });
+    mock.env(on, HOME);
+    const session = fakeSession(on);
+    const reply = '  {private judge reply ' + 'x'.repeat(500);
+    session.claudeReply = () => ({ isAnswered: true, text: reply, usage: noUsage() });
+
+    await $.turn.complete(finishedTurn());
+    await clock.settle();
+
+    expect(loggedLines(session)[0]).toMatchObject({
+      event: 'judge-unreadable', replyChars: reply.length, startsWithBrace: true,
+    });
+    expect(loggedLines(session)[0]).not.toHaveProperty('raw');
+    expect(JSON.stringify(loggedLines(session))).not.toContain('private judge reply');
+    expect(JSON.stringify(loggedLines(session))).not.toContain('x'.repeat(300));
   });
 
   test('a verdict without a boolean compact field counts as no', { options: { minTokens: 0 } }, async ($, on) => {

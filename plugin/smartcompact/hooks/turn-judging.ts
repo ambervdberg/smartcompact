@@ -162,9 +162,9 @@ export class TurnJudging {
 
   // A reply in prose or cut at the token limit is the judge's slip, so the line keeps its countdown and shows no error.
   #treatUnreadableAsNo(engine: Engine, tokens: number, answer: JudgeAnswer, latencyMs: number): void {
-    const { replyChars, outputTokens, model } = answer;
+    const { replyChars, startsWithBrace, outputTokens, model } = answer;
 
-    logEvent(engine, 'judge-unreadable', { tokens, replyChars, outputTokens, model, latencyMs });
+    logEvent(engine, 'judge-unreadable', { tokens, replyChars, startsWithBrace, outputTokens, model, latencyMs });
     showJudgeCountdown(engine, this.#settings.minTokens - this.#floor.addedTokens(tokens));
   }
 
