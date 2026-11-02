@@ -82,7 +82,7 @@ Only a tag at the very end of a main answer counts. Whitespace may follow it. A 
 from a subagent do nothing. An empty or blank tag is ignored too, and the turn goes to the judge. When the main
 answer ends with the tag, the judge is not asked and the first match below runs:
 
-1. A running agent id is missing from the tag text: the request is ignored and logged with the running and missing ids. A hidden note lists the running ids and asks Claude to tag again with each id and what to do with its report, or once they finish. A refused note is logged as `request-error`. A tag that contains every running id as plain text goes on to the next check.
+1. A running agent id is missing from the tag text: the request is ignored and logged with the running and missing ids. A hidden note lists the running ids and asks Claude to tag again with each id and what to do with its report, or once they finish. A refused note is logged as `request-error`. A tag that names every running id goes on to the next check. Each id must match literally, with no letter, digit, `_` or `-` touching either side. For example, `agent-1.` and `(agent-1)` name `agent-1`, but `agent-10` does not.
 2. Loop guard: the request is ignored and logged as `loop guard` when this turn came right after a continue prompt
    the plugin sent without a compaction. Without it a session that tags again at once loops. The guard holds in two
    cases:

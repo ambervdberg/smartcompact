@@ -16,6 +16,12 @@ import { showTimedStatus } from './status-line.ts';
 import type { TurnCounter } from './turn-counter.ts';
 import type { FinishedTurn } from './turn-judging.ts';
 
+// A plain includes() lets agent-10 pass for agent-1, so the summary could drop the pending report of agent-1.
+function namesAgentId(text: string, id: string): boolean {
+  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_-])${escapedId}(?![A-Za-z0-9_-])`).test(text);
+}
+
 /** Tells the model why its tag was ignored, in a row the judge input skips. */
 export function subagentsRunningText(agents: string[]): string {
   return `${NUDGE_TEXT_START}compaction skipped, ${agents.length} subagent(s) still running (${agents.join(', ')}). To compact now, tag again and name each running agent id with what to do with its report. Or tag again once they finish.`;
@@ -125,7 +131,7 @@ export class RequestFollowing {
 
   // A tag must name each running agent so the summary can keep its pending report.
   async #ignoresMissingAgentIds(engine: Engine, next: string, agents: string[]): Promise<boolean> {
-    const missing = agents.filter((id) => !next.includes(id));
+    const missing = agents.filter((id) => !namesAgentId(next, id));
 
     if (missing.length === 0) {
       return false;

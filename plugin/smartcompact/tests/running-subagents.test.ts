@@ -182,6 +182,40 @@ describe('subagent files override a busy engine status', () => {
     }));
   });
 
+  for (const [id, named, followed] of [
+    ['agent-1', 'agent-10', false],
+    ['agent-1', 'agent-1', true],
+    ['agent-1', 'agent-1.', true],
+    ['agent-1', '(agent-1)', true],
+    ['worker@team', 'worker@team', true],
+    ['worker@team', 'worker@teams', false],
+    ['a.b', 'a.b', true],
+    ['a.b', 'axb', false],
+    ...['a', '1', '_', '-'].flatMap((boundary) => [
+      ['agent-1', `${boundary}agent-1`, false] as const,
+      ['agent-1', `agent-1${boundary}`, false] as const,
+    ]),
+  ] as const) {
+    test(`a tag naming ${named} ${followed ? 'follows' : 'ignores'} running ${id}`, NO_FLOOR, async ($, on) => {
+      const clock = mock.clock(on, { now: START });
+      mock.env(on, HOME);
+      const session = fakeSession(on);
+      session.agents = [{ ...BUSY_AGENT, id }];
+
+      await $.turn.complete(taggedTurn(`Keep the report from ${named}`));
+      await clock.settle();
+
+      expect(session.compacts).toHaveLength(followed ? 1 : 0);
+      if (followed) {
+        expect(session.notes).toEqual([]);
+      } else {
+        expect(loggedLines(session)).toContainEqual(expect.objectContaining({
+          event: 'request-ignored', reason: 'subagents running', agents: [id], missing: [id],
+        }));
+      }
+    });
+  }
+
   test('a teammate id keeps trusting the engine status even with finished files', NO_FLOOR, async ($, on) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
