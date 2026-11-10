@@ -1,6 +1,6 @@
 # smartcompact
 
-A Claude Code mod that compacts the conversation at a good moment and then tells Claude to keep working.
+A Claude Code mod that compacts the conversation at the right moment with a summary focused on the current task, and then picks the work back up.
 
 ![Claude ends its answer with the smartcompact tag and the plugin starts compacting](docs/images/compacting.png)
 
