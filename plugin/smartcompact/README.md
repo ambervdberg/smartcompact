@@ -104,7 +104,7 @@ A plugin loaded with `--plugin-dir` uses the key `smartcompact` instead of `smar
 | Option | Default | What it does |
 | --- | --- | --- |
 | `minTokens` | `60000` | The [token floor](#token-floor): tokens added before the judge is asked or a session's request compacts. |
-| `claudeModel` | `haiku` | Model alias or id for the judge. It runs on your own Claude login and needs no setup. |
+| `claudeModel` | `haiku` | Model alias or id for the judge. It runs through Claude Code's own model call and needs no setup. |
 
 ## Continue prompt
 
@@ -137,20 +137,22 @@ A filled heading looks like `## 2026-10-04T10:00:00.000Z | C:/work | session-1`.
 
 ## What it reads, sends and writes
 
-The mod sends nothing to the author or to any server of its own. The only call that leaves the session is the judge, through the engine's own model call on your Claude login (`claudeModel`). After a turn above the floor, the judge gets:
+The mod sends nothing to the author or to any server of its own. The only call that leaves the session is the judge, through the engine's own model call (`claudeModel`). The mod reads no credentials. The engine's call does the sign-in. After a turn above the floor, the judge gets:
 
 - the first 2000 characters of the person's last prompt
 - the last 4000 characters of the last answer
 - a one-line summary of the last 40 tool calls since that prompt, 150 characters each
 
-**In the session** it adds the `smartcompact` block to `prompt.context` and changes no other block. It adds the nudge and the missed-id note as hidden rows with `session.append`. A subagent gets neither note. It handles only its own command, `/smartcompact-prompt`. It runs `/compact` with the instructions above, and submits only the continue prompt.
+**In the session** it adds the `smartcompact` block to `prompt.context` and changes no other block. Its `session.append` hook runs after a main tool result and may append the hidden nudge row. It changes no stored row. When a tag misses a running subagent id, it appends a hidden note that lists the ids. A subagent gets neither note. It handles only its own command, `/smartcompact-prompt`. It runs `/compact` with the instructions above, and submits only the continue prompt.
+
+The continue prompt is the text of your `continue-prompt.md` or the shipped default. `{next}` is filled with the tag text the session wrote, or the fixed judge-yes line. `{choicesFile}` is filled with the choices path. `{choicesHeading}` is filled with a line holding the time, the working folder and the session id. Nothing else goes in.
 
 **It writes two files**, both in `~/.claude/smartcompact/`:
 
 - `log.jsonl`, or the file `SMARTCOMPACT_LOG` names. See [Log](#log) below.
-- `continue-prompt.md`, only when you run `/smartcompact-prompt` and the file does not exist.
+- `continue-prompt.md`, a prompt the mod sends to Claude. It is written only when you run `/smartcompact-prompt` and the file does not exist.
 
-It edits no settings, instructions, hooks, build or start-up file. It reads its own files, the session's messages and token count, the prompt box and the list of running subagents. It lists `projects/` under the Claude config folder, reads `agent-*.meta.json` and reads the modification time of `agent-*.jsonl`. It reads no subagent transcript content.
+Apart from `continue-prompt.md`, it edits no settings, instructions, hooks, build or start-up file. It reads its own files, the session's messages and token count, the prompt box and the list of running subagents. It lists `projects/` under the Claude config folder, reads `agent-*.meta.json` and reads the modification time of `agent-*.jsonl`. It reads no subagent transcript content.
 
 ## Log
 
