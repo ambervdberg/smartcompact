@@ -18,7 +18,9 @@ export const FAKE_HOME = '/home/test';
 export const FAKE_CONFIG_DIR = '/config';
 const LOG_FILE = `${FAKE_HOME}/.claude/smartcompact/log.jsonl`;
 // The fake cannot read the disk, so it serves the shipped prompt for the plugin folder under test itself.
-const SHIPPED_PROMPT_TAIL = '/plugin/smartcompact/continue-prompt.md';
+// The test kit's `$.plugin.root` is a temp folder and a hooks module cannot import node:url, so any other
+// continue-prompt.md counts as the shipped one. The user's override lives under the fake home.
+const SHIPPED_PROMPT_NAME = '/continue-prompt.md';
 
 /** The user's own continue prompt under the fake home folder. */
 export const OVERRIDE_PROMPT_FILE = `${FAKE_HOME}/.claude/smartcompact/continue-prompt.md`;
@@ -378,5 +380,7 @@ function slashed(path: string): string {
 }
 
 function isShippedPrompt(path: string): boolean {
-  return slashed(path).endsWith(SHIPPED_PROMPT_TAIL);
+  const file = slashed(path);
+
+  return file.endsWith(SHIPPED_PROMPT_NAME) && file !== OVERRIDE_PROMPT_FILE;
 }
