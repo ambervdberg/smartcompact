@@ -9,7 +9,7 @@ const HOME = { USERPROFILE: FAKE_HOME };
 const START_ARGS = { cwd: 'C:/work', surface: 'terminal', isInteractive: true } as const;
 
 function savedBaseline(session: ReturnType<typeof fakeSession>): unknown {
-  return (session.store.get('floors') as Record<string, { baseline: number }>)['session-1']?.baseline;
+  return (session.store.get('floor:session-1') as { baseline: number } | undefined)?.baseline;
 }
 
 describe('the baseline of a first turn', () => {

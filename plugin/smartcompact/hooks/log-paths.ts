@@ -1,18 +1,29 @@
 import type { Engine } from './engine.ts';
 
-const LOG_FILE_NAME = 'log.jsonl';
 const CHOICES_FILE_NAME = 'choices.md';
 
 /** The event log file. SMARTCOMPACT_LOG overrides the default under the home folder. */
 export async function logFilePath(engine: Engine): Promise<string> {
   const override = await engine.env.logFile();
 
-  return override || `${await smartcompactFolder(engine)}/${LOG_FILE_NAME}`;
+  if (override) {
+    return override;
+  }
+
+  const sessionId = (await engine.sessionId()).replace(/[^A-Za-z0-9_-]/g, '');
+
+  return `${await smartcompactFolder(engine)}/logs/${sessionId}.jsonl`;
 }
 
-/** The central file where continued sessions write their choices. It sits next to the log file. */
+/** A shared choices file lets continued sessions keep their decisions together. */
 export async function choicesFilePath(engine: Engine): Promise<string> {
-  const log = await logFilePath(engine);
+  const override = await engine.env.logFile();
+
+  if (!override) {
+    return `${await smartcompactFolder(engine)}/${CHOICES_FILE_NAME}`;
+  }
+
+  const log = override;
 
   const folder = folderOf(log);
   const absolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(log);
@@ -22,7 +33,7 @@ export async function choicesFilePath(engine: Engine): Promise<string> {
   return `${resolved}${resolved.endsWith('/') ? '' : '/'}${CHOICES_FILE_NAME}`;
 }
 
-/** The plugin's folder under the home folder. The log, choices.md and the user's continue prompt sit in it by default. */
+/** Keeping user files under the home folder makes them shared across working folders. */
 export async function smartcompactFolder(engine: Engine): Promise<string> {
   const home = (await engine.env.userProfile()) || (await engine.env.home()) || '';
 

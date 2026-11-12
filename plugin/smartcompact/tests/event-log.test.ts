@@ -6,11 +6,11 @@ test('newestPartOf measures UTF-8 bytes and keeps whole newest lines', () => {
   const line = '😀'.repeat(100) + '\n';
   const log = line.repeat(6000);
   const kept = newestPartOf(log);
-  expect(kept).toBe(line.repeat(Math.floor(1_000_000 / 401)));
+  expect(kept).toBe(line.repeat(Math.floor(150_000 / 401)));
 });
 
 test('newestPartOf drops an oversized line without a newline', () => {
-  expect(newestPartOf('x'.repeat(2_000_001))).toBe('');
+  expect(newestPartOf('x'.repeat(300_001))).toBe('');
 });
 
 test('newestPartOf leaves a small Unicode log unchanged', () => {
@@ -22,4 +22,10 @@ test('only logging truncates error messages', async () => {
   logEvent(engine, 'judge-error', { message: 'x'.repeat(250) });
   await settleStub();
   expect(stubLoggedLines(record)[0]?.['message']).toBe('x'.repeat(200));
+});
+
+test('newestPartOf keeps the cap boundary and trims to 150 KB above it', () => {
+  const line = 'x'.repeat(999) + '\n';
+  expect(newestPartOf(line.repeat(300))).toBe(line.repeat(300));
+  expect(newestPartOf(line.repeat(301))).toBe(line.repeat(150));
 });

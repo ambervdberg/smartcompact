@@ -3,9 +3,10 @@ import { logFilePath } from './log-paths.ts';
 
 export type EventDetails = Record<string, unknown>;
 
-// `$.fs` has no append and reads at most 4 MiB, so a long log keeps only its newest part.
-const MAX_LOG_BYTES = 2_000_000;
-const KEPT_LOG_BYTES = 1_000_000;
+// The fs has no append, so the cap keeps each read and rewrite small.
+// The fs has no delete, so old session files stay, each capped.
+const MAX_LOG_BYTES = 300_000;
+const KEPT_LOG_BYTES = 150_000;
 
 // One write at a time, so two events of one session never overwrite each other.
 let pendingWrite: Promise<void> = Promise.resolve();

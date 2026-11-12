@@ -125,7 +125,7 @@ When nothing was compacted, a first line `Context was compacted automatically.` 
 
 ### Choices file
 
-Your own continue prompt can ask Claude to write the choices it made for you to `~/.claude/smartcompact/choices.md`. The log folder is the default location for the choices file, so `SMARTCOMPACT_LOG` moves it too. A bare log filename uses the current folder, and `{choicesFile}` is always an absolute path. For example:
+Your own continue prompt can ask Claude to write the choices it made for you to `~/.claude/smartcompact/choices.md`. The plugin folder is the default location for the choices file. With `SMARTCOMPACT_LOG` set, it sits next to that log file. A bare log filename uses the current folder, and `{choicesFile}` is always an absolute path. For example:
 
 ```
 Append your choices to {choicesFile}. Create the file if it is missing and never overwrite earlier text. Start with this line:
@@ -147,16 +147,16 @@ The mod sends nothing to the author or to any server of its own. The only call t
 
 The continue prompt is the text of your `continue-prompt.md` or the shipped default. `{next}` is filled with the tag text the session wrote, or the fixed judge-yes line. `{choicesFile}` is filled with the choices path. `{choicesHeading}` is filled with a line holding the time, the working folder and the session id. Nothing else goes in.
 
-**It writes two files**, both in `~/.claude/smartcompact/`:
+**It writes these files** under `~/.claude/smartcompact/` by default:
 
-- `log.jsonl`, or the file `SMARTCOMPACT_LOG` names. See [Log](#log) below.
+- `logs/<session id>.jsonl`, capped at 300 KB and trimmed to the newest 150 KB, or the file `SMARTCOMPACT_LOG` names. See [Log](#log) below.
 - `continue-prompt.md`, a prompt the mod sends to Claude. It is written only when you run `/smartcompact-prompt` and the file does not exist.
 
 Apart from `continue-prompt.md`, it edits no settings, instructions, hooks, build or start-up file. It reads its own files, the session's messages and token count, the prompt box and the list of running subagents. It lists `projects/` under the Claude config folder, reads `agent-*.meta.json` and reads the modification time of `agent-*.jsonl`. It reads no subagent transcript content.
 
 ## Log
 
-Each decision is one JSON line in `~/.claude/smartcompact/log.jsonl`. It stays on your machine and keeps only its newest 2 MB. It keeps no text from the conversation and no text the judge wrote. A line holds the event, the time and details such as token counts, the length of the judge's reason (`reasonChars`) or an error message. The rows of a compaction carry `source`: `judge` or `request` (the session's tag). A `compact-started` row shows that the compact call began.
+Each decision is one JSON line in `~/.claude/smartcompact/logs/<session id>.jsonl`. Each session writes its own file, with only letters, digits, dash and underscore kept in the file name. It stays on your machine. Each file is capped at 300 KB and trimmed to the newest 150 KB of whole lines when it exceeds the cap. Old session files stay because the engine cannot delete files. `SMARTCOMPACT_LOG` overrides the path and makes all sessions share that file. It keeps no text from the conversation and no text the judge wrote. A line holds the event, the time and details such as token counts, the length of the judge's reason (`reasonChars`) or an error message. The rows of a compaction carry `source`: `judge` or `request` (the session's tag). A `compact-started` row shows that the compact call began.
 
 ## Development
 
