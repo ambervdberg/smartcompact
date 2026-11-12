@@ -146,12 +146,17 @@ describe('review findings', () => {
       const session = fakeSession(on);
       let resolve!: () => void;
       const gate = new Promise<void>((done) => { resolve = done; });
-      on('fs.read', async (_$, e, next) => {
-        if (e.path.endsWith('continue-prompt.md')) { await gate; }
-        return next(e);
-      });
+      let readingPrompt = false;
+      session.beforeRead = async (path) => {
+        if (path.endsWith('continue-prompt.md')) {
+          readingPrompt = true;
+          await gate;
+        }
+      };
       await $.turn.complete(taggedTurn('Go on'));
       await clock.settle();
+      expect(readingPrompt).toBe(true);
+      expect(session.submitted).toEqual([]);
       if (reset === 'clear') {
         await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } });
       } else {
@@ -197,12 +202,17 @@ describe('review findings', () => {
     const session = fakeSession(on);
     let resolve!: () => void;
     const gate = new Promise<void>((done) => { resolve = done; });
-    on('fs.read', async (_$, e, next) => {
-      if (e.path.endsWith('continue-prompt.md')) { await gate; }
-      return next(e);
-    });
+    let readingPrompt = false;
+    session.beforeRead = async (path) => {
+      if (path.endsWith('continue-prompt.md')) {
+        readingPrompt = true;
+        await gate;
+      }
+    };
     await $.turn.complete(taggedTurn('Go on'));
     await clock.settle();
+    expect(readingPrompt).toBe(true);
+    expect(session.submitted).toEqual([]);
     await $.turn.start({ text: 'agent work', turnId: 'agent-turn', agentId: 'agent-1' });
     resolve();
     await clock.settle();

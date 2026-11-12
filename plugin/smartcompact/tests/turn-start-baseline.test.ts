@@ -1,3 +1,5 @@
+import type { On } from 'claude-code';
+import type { Engine as TestEngine } from 'claude-code/testing';
 import { describe, expect, mock, test } from 'claude-code/testing';
 import { ContextFloor } from '../hooks/context-floor.ts';
 import { SUMMARY, fakeSession, finishedTurn, loggedLines, runStep, FAKE_HOME } from './fake-engine.ts';
@@ -11,7 +13,7 @@ function savedBaseline(session: ReturnType<typeof fakeSession>): unknown {
 }
 
 describe('the baseline of a first turn', () => {
-  test('after a compaction is the reading at the second step', async ($, on) => {
+  test('after a compaction is the reading at the second step', async ($: TestEngine, on: On) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
@@ -40,7 +42,7 @@ describe('the baseline of a first turn', () => {
     });
   });
 
-  test('of a one-step turn is the size at its end', async ($, on) => {
+  test('of a one-step turn is the size at its end', async ($: TestEngine, on: On) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
@@ -56,7 +58,7 @@ describe('the baseline of a first turn', () => {
     expect(savedBaseline(session)).toBe(40000);
   });
 
-  test('ignores the steps of a subagent', async ($, on) => {
+  test('ignores the steps of a subagent', async ($: TestEngine, on: On) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
@@ -83,7 +85,7 @@ describe('the baseline of a first turn', () => {
     expect(touched.baseline()).toBe(untouched.baseline());
   });
 
-  test('drops a reading taken before a /clear', async ($, on) => {
+  test('drops a reading taken before a /clear', async ($: TestEngine, on: On) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);
@@ -100,7 +102,7 @@ describe('the baseline of a first turn', () => {
     expect(savedBaseline(session)).toBe(50000);
   });
 
-  test('drops a reading taken before a compaction', async ($, on) => {
+  test('drops a reading taken before a compaction', async ($: TestEngine, on: On) => {
     const clock = mock.clock(on, { now: START });
     mock.env(on, HOME);
     const session = fakeSession(on);

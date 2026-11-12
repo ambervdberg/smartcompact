@@ -64,6 +64,8 @@ export type FakeSession = {
   mtimes: Map<string, number>;
   /** Paths whose read fails, as a locked or broken file would. */
   unreadableFiles: Set<string>;
+  /** When set, pauses a file read before the fake returns its contents. */
+  beforeRead?: (path: string) => Promise<void>;
   store: Map<string, unknown>;
   /** Texts of the rows the plugin appended. */
   notes: string[];
@@ -357,7 +359,9 @@ function answerFiles(on: On, session: FakeSession): void {
       isLink: false,
     } };
   });
-  on('fs.read', (_$, e) => {
+  on('fs.read', async (_$, e) => {
+    await session.beforeRead?.(e.path);
+
     if (session.unreadableFiles.has(slashed(e.path))) {
       throw new Error(`cannot read ${e.path}`);
     }

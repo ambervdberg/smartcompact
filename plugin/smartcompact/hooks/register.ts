@@ -122,9 +122,9 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && (e.trigger === 'manual' || e.trigger === 'auto')) {
       turns.noteReset();
       const engine = engineOf($);
-      await compaction.drop(engine, `${e.trigger} compact`);
       // A missing count leaves the tokens field out of the row.
       logEvent(engine, 'compact-other', { trigger: e.trigger, tokens: await contextTokens(engine) });
+      await compaction.drop(engine, `${e.trigger} compact`);
     }
 
     const compacted = await next(e);
