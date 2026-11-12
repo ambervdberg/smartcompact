@@ -5,7 +5,7 @@
 A Claude Code mod (a plugin with function hooks) in `plugin/smartcompact` (Claude Code 2.1.289+). After each main turn a judge model decides whether to compact. On yes it compacts, then sends a continue prompt. Its README covers behaviour, options and development.
 
 - The repo root is a plugin marketplace (`.claude-plugin/marketplace.json`). The plugin installs as `smartcompact@smartcompact`. When the marketplace is added from a local folder, edits take effect in new sessions.
-- Log: `~/.claude/smartcompact/log.jsonl`, `SMARTCOMPACT_LOG` overrides it.
+- Log: `~/.claude/smartcompact/logs/<session id>.jsonl`, capped at 300 KB and trimmed to the newest 150 KB. `SMARTCOMPACT_LOG` overrides it.
 
 ## Commands
 
