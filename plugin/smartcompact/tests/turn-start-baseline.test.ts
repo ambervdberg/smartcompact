@@ -22,11 +22,11 @@ describe('the baseline of a first turn', () => {
 
     expect(session.compacts).toHaveLength(1);
 
-    await runStep($, 0);
+    await runStep($, 0, undefined, 'turn-2');
     session.tokens = 30000;
-    await runStep($, 1);
+    await runStep($, 1, undefined, 'turn-2');
     session.tokens = 45000;
-    await runStep($, 2);
+    await runStep($, 2, undefined, 'turn-2');
     session.tokens = 120000;
     await $.turn.complete(finishedTurn('turn-2'));
     await clock.settle();

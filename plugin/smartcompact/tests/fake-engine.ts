@@ -155,9 +155,9 @@ export function seedSubagent(session: FakeSession, id: string, finished: boolean
 }
 
 /** Runs one model request of a turn to its end: of the main session, or of a subagent when `agentId` is given. */
-export async function runStep($: TestEngine, index: number, agentId?: string): Promise<void> {
+export async function runStep($: TestEngine, index: number, agentId?: string, turnId = 'turn-1'): Promise<void> {
   const stream = $.turn.step({
-    turnId: 'turn-1',
+    turnId,
     index,
     model: 'opus',
     messageCount: 1,

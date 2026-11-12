@@ -14,7 +14,12 @@ export async function logFilePath(engine: Engine): Promise<string> {
 export async function choicesFilePath(engine: Engine): Promise<string> {
   const log = await logFilePath(engine);
 
-  return `${folderOf(log)}/${CHOICES_FILE_NAME}`;
+  const folder = folderOf(log);
+  const absolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(log);
+
+  const resolved = absolute ? folder : `${await engine.cwd()}${folder === '.' ? '' : `/${folder}`}`;
+
+  return `${resolved}${resolved.endsWith('/') ? '' : '/'}${CHOICES_FILE_NAME}`;
 }
 
 /** The plugin's folder under the home folder. The log, choices.md and the user's continue prompt sit in it by default. */
@@ -26,5 +31,7 @@ export async function smartcompactFolder(engine: Engine): Promise<string> {
 
 // Both slash styles count, because the override comes in the platform's own spelling.
 function folderOf(file: string): string {
-  return file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')));
+  const separator = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+
+  return separator < 0 ? '.' : file.slice(0, separator) || '/';
 }
